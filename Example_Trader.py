@@ -22,6 +22,7 @@ class Trader:
             # Note that this value of 10 is just a dummy value, you should likely change it!
             acceptable_price = 10
                         # All print statements output will be delivered inside test results
+            print("Product name : " + str(product))
             print("Acceptable price : " + str(acceptable_price))
             print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
 
