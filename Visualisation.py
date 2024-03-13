@@ -1,4 +1,5 @@
 import json
+import numpy as np
 from datamodel import Listing, Observation, Order, OrderDepth, ProsperityEncoder, Symbol, Trade, TradingState
 from typing import Any
 
@@ -99,6 +100,12 @@ class Trader:
             total_vol += trade.quantity
             
         return total_dollar / total_vol
+    
+    def calculate_sma(self, past_prices: list[float], window_size: int):
+        if len(past_prices) >= window_size:
+            return np.mean(past_prices[-window_size :])
+
+
     
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         result = {}
