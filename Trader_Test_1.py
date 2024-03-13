@@ -6,7 +6,8 @@ import copy
 
 
 class Trader:
-    
+    POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
+    positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
       
         
     def calculate_vwap(self, trades) -> float:
@@ -18,24 +19,23 @@ class Trader:
             
         return total_dollar / total_vol
     
-        
-
+    
     def run(self, state: TradingState):
         """
         Only method required. It takes all buy and sell orders for all symbols as an input,
         and outputs a list of orders to be sent
         """      
-        POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}          
+       
         # Orders to be placed on exchange matching engine
         result = {}
-        for product in state.order_depths:  
-            cur_position = 0 
+
+        for product in state.listings:              
             
             if product in state.position:       
-                cur_position = state.position[product]
+                self.positions[product] = state.position[product]
             
             print(f"product name: {product}")
-            print(f"starting_position: {cur_position}")
+            print(f"starting_position: {self.positions[product]}")
             #order depth for the product            
             buy_order_depth = state.order_depths[product].buy_orders
             sell_order_depth = state.order_depths[product].sell_orders
@@ -63,24 +63,24 @@ class Trader:
                     # Opportunity to sell      
                     # If there's a buy order depth at a price higher than the fair price, we sell                                                                                                         
                     if price > fair_price:                    
-                        order_quantity = min(POSITION_LIMIT[product] - abs(cur_position), quantity)
+                        order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), quantity)
                         if order_quantity > 0:
                             orders.append(Order(product, price, -order_quantity))
-                            cur_position += -order_quantity
+                            self.positions[product] += -order_quantity
                             print(f"Sell: ${price}", {quantity})
-                            print(f"position: {cur_position}")
+                            print(f"position: {self.positions[product]}")
                     
                 for price, quantity in sell_order_depth.items():
                     print(f"price: {price} quantity: {quantity}") 
                     # Opportunity to buy
                     # If there's a sell order depth at a price lower than the fair price, we buy
                     if price < fair_price:
-                        order_quantity = min((POSITION_LIMIT[product] - abs(cur_position)), abs(quantity))
+                        order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), abs(quantity))
                         if order_quantity > 0:
                             orders.append(Order(product, price, order_quantity))
-                            cur_position += order_quantity
+                            self.positions[product] += order_quantity
                             print(f"Buy: ${price}, {quantity}")
-                            print(f"position: {cur_position}")
+                            print(f"position: {self.positions[product]}")
             
         
             
