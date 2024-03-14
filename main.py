@@ -35,7 +35,7 @@ own_trades = {
           Trade(
 			symbol="AMETHYSTS",
 			price=9,
-			quantity=2,
+			quantity=3,
 			buyer="SUBMISSION",
 			seller="",
 			timestamp=900

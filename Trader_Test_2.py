@@ -49,6 +49,43 @@ class Trader:
 
             return mean_value                 
     
+    def compute_open_pos(self, state: TradingState, past_trades: PastData, product: str):
+        valid_op = []
+        position_count = 0
+        if state.position[product] > 0:
+            # Iterate the own_trades from the most recent one
+            for trade in reversed(past_trades.open_positions[product]):
+                position_count += trade[self.PD_QUANTITY_INDEX]
+                valid_op_trade: Tuple
+                if position_count < state.position[product]:
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                elif position_count > state.position[product]:
+                    pos_diff = position_count - state.position[product]
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)                
+                elif position_count == state.position[product]:
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+
+                valid_op.insert(0, valid_op_trade)
+
+            # Update the open positions                            
+            past_trades.open_positions[product] = valid_op
+        elif state.position[product] < 0:
+            # Iterate the own_trades from the most recent one
+            for trade in reversed(past_trades.open_positions[product]):
+                position_count += trade[self.PD_QUANTITY_INDEX]
+                valid_op_trade: Tuple
+                if position_count > state.position[product]:
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                elif position_count < state.position[product]:
+                    pos_diff = position_count - state.position[product]
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
+                elif position_count == state.position[product]:
+                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX]) 
+                    
+                valid_op.insert(0, valid_op_trade)
+            past_trades.open_positions[product] = valid_op            
+        elif state.position[product] == 0:
+            past_trades.open_positions[product] = valid_op
 
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
@@ -106,38 +143,42 @@ class Trader:
                     print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
 
                 # Get rid of past own_trades that gave been closed
-                valid_op = []
-                position_count = 0
-                if state.position[product] > 0:
-                    # Iterate the own_trades from the most recent one
-                    for trade in reversed(past_trades.open_positions[product]):
-                        position_count += trade[self.PD_QUANTITY_INDEX]
-                        if position_count < state.position[product]:
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                            valid_op.insert(0, valid_op_trade)
-                        elif position_count > state.position[product]:
-                            pos_diff = position_count - state.position[product]
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
-                        elif position_count == state.position[product]:
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                            valid_op.insert(0, valid_op_trade)
-                    # Update the open positions                            
-                    past_trades.open_positions[product] = valid_op
-                elif state.position[product] < 0:
-                    # Iterate the own_trades from the most recent one
-                    for trade in reversed(past_trades.open_positions[product]):
-                        position_count += trade[self.PD_QUANTITY_INDEX]
-                        if position_count > state.position[product]:
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                            valid_op.insert(0, valid_op_trade)
-                        elif position_count < state.position[product]:
-                            pos_diff = position_count - state.position[product]
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
-                        elif position_count == state.position[product]:
-                            valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                            valid_op.insert(0, valid_op_trade)    
-                    past_trades.open_positions[product] = valid_op            
+                # valid_op = []
+                # position_count = 0
+                # if state.position[product] > 0:
+                #     # Iterate the own_trades from the most recent one
+                #     for trade in reversed(past_trades.open_positions[product]):
+                #         position_count += trade[self.PD_QUANTITY_INDEX]
+                #         if position_count < state.position[product]:
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                #             valid_op.insert(0, valid_op_trade)
+                #         elif position_count > state.position[product]:
+                #             pos_diff = position_count - state.position[product]
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
+                #         elif position_count == state.position[product]:
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                #             valid_op.insert(0, valid_op_trade)
+                #     # Update the open positions                            
+                #     past_trades.open_positions[product] = valid_op
+                # elif state.position[product] < 0:
+                #     # Iterate the own_trades from the most recent one
+                #     for trade in reversed(past_trades.open_positions[product]):
+                #         position_count += trade[self.PD_QUANTITY_INDEX]
+                #         if position_count > state.position[product]:
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                #             valid_op.insert(0, valid_op_trade)
+                #         elif position_count < state.position[product]:
+                #             pos_diff = position_count - state.position[product]
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
+                #         elif position_count == state.position[product]:
+                #             valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                #             valid_op.insert(0, valid_op_trade)    
+                #     past_trades.open_positions[product] = valid_op            
+                # elif state.position[product] == 0:
+                #     past_trades.open_positions[product] = valid_op
+
                 
+                self.compute_open_pos(state, past_trades, product)
                 print(f"{product} updated open positions: {len(past_trades.open_positions[product])}")
                 for pos in past_trades.open_positions[product]:
                     print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
