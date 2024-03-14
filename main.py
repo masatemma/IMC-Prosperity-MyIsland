@@ -1,5 +1,5 @@
 from datamodel import Listing, OrderDepth, Trade, TradingState
-from Trader_Test_1 import Trader
+from Trader_Test_2 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
 
@@ -31,7 +31,23 @@ order_depths = {
 
 
 own_trades = {
-	"AMETHYSTS": [],
+	"AMETHYSTS": [
+          Trade(
+			symbol="AMETHYSTS",
+			price=9,
+			quantity=2,
+			buyer="SUBMISSION",
+			seller="",
+			timestamp=900
+		),
+        Trade(
+			symbol="AMETHYSTS",
+			price=20,
+			quantity=1,
+			buyer="SUBMISSION",
+			seller="",
+			timestamp=900
+		)],
 	"STARFRUIT": []
 }
 
