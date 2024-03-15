@@ -13,7 +13,7 @@ class PastData:
 
 
 class Trader:
-    WINDOW_SIZE = {'AMETHYSTS': 2, 'STARFRUIT': 13}   # best A: 4, S: 6
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 6}   # best A: 4, S: 6
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
     TICK_SIZE = 1

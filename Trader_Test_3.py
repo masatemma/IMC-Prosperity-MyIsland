@@ -13,7 +13,8 @@ class PastData:
 
 
 class Trader:
-    WINDOW_SIZE = {'AMETHYSTS': 2, 'STARFRUIT': 13}   # best A: 4, S: 6
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 6}   # best A: 4, S: 6    
+    VWAP_WINDOW = 30
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
     TICK_SIZE = 1
@@ -24,12 +25,17 @@ class Trader:
     Taking the past trades as an argument,including own_trades and market_trades for a specific product.
     Return the VWAP value
     """
-    def calculate_vwap(self, trades) -> float:        
+    def calculate_vwap(self, past_market_data: List[Tuple[float, int]], product:str) -> float:  
+
+        if len(past_market_data) < self.WINDOW_SIZE[product]:   
+            return 0.0
+           
         total_vol = 0
         total_dollar = 0
-        for trade in trades:
-            total_dollar += trade.quantity * trade.price
-            total_vol += trade.quantity
+        for data in past_market_data[-self.VWAP_WINDOW: ]:
+            total_dollar += data[self.PD_PRICE_INDEX] * abs(data[self.PD_QUANTITY_INDEX])
+            total_vol += abs(data[self.PD_QUANTITY_INDEX])
+    
             
         return total_dollar / total_vol
     
@@ -42,8 +48,9 @@ class Trader:
             if len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
                 return 0.0
                       
-            past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data)
-        
+            past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data[-self.WINDOW_SIZE[product]:])
+
+            print(f"Past market data window size: {past_market_data[-self.WINDOW_SIZE[product]:]}")
             past_trades_sum_price += order_depth_price
             mean_value = float(past_trades_sum_price / (len(past_market_data) + 1))
 
@@ -56,37 +63,81 @@ class Trader:
     def compute_open_pos(self, state: TradingState, past_trades: PastData, product: str):
         valid_op = []
         position_count = 0
+        valid_op_trade: Tuple
         if state.position[product] > 0:
             # Iterate the own_trades from the most recent one
             for trade in reversed(past_trades.open_positions[product]):
-                position_count += trade[self.PD_QUANTITY_INDEX]
-                valid_op_trade: Tuple
-                if position_count < state.position[product]:
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                elif position_count > state.position[product]:
-                    pos_diff = position_count - state.position[product]
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)                
-                elif position_count == state.position[product]:
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                if trade[self.PD_QUANTITY_INDEX] > 0:           
+                    position_count += trade[self.PD_QUANTITY_INDEX]
 
-                valid_op.insert(0, valid_op_trade)
+                    if position_count < state.position[product]:
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                    elif position_count > state.position[product]:
+                        pos_diff = position_count - state.position[product]
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)                
+                    elif position_count == state.position[product]:
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+
+                    valid_op.insert(0, valid_op_trade)
             # Update the open positions                            
         elif state.position[product] < 0:
             # Iterate the own_trades from the most recent one
             for trade in reversed(past_trades.open_positions[product]):
-                position_count += trade[self.PD_QUANTITY_INDEX]
-                valid_op_trade: Tuple
-                if position_count > state.position[product]:
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
-                elif position_count < state.position[product]:
-                    pos_diff = position_count - state.position[product]
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
-                elif position_count == state.position[product]:
-                    valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX]) 
+                if trade[self.PD_QUANTITY_INDEX] < 0:           
+                    position_count += trade[self.PD_QUANTITY_INDEX]
+   
+                    if position_count > state.position[product]:
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX])
+                    elif position_count < state.position[product]:
+                        pos_diff = position_count - state.position[product]
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX] - pos_diff)
+                    elif position_count == state.position[product]:
+                        valid_op_trade = (trade[self.PD_PRICE_INDEX], trade[self.PD_QUANTITY_INDEX]) 
 
-                valid_op.insert(0, valid_op_trade)
+                    valid_op.insert(0, valid_op_trade)
        
+    
         past_trades.open_positions[product] = valid_op
+    
+    """
+    Return buy orders based on SMA
+    """
+    def compute_sell_orders_sma(self, orders: List[Order], buy_order_depth: Dict[int, int], past_trades: PastData, product: str):
+        
+        for price, quantity in buy_order_depth.items():
+            current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
+            #print(f"current SMA: {current_sma}")
+            if current_sma == 0:
+                break                
+            if price >= current_sma + self.TICK_SIZE:     
+                order_quantity = min(abs(self.positions[product]), quantity)
+
+                #order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), quantity)
+                if order_quantity > 0:
+                    self.positions[product] += -order_quantity
+                    orders.append(Order(product, price, -order_quantity))
+                    
+                    print(f"Sell: ${price}", {quantity})
+                    print(f"position: {self.positions[product]}")
+
+    """
+    Return sell orders based on SMA
+    """
+    def compute_buy_orders_sma(self, orders: List[Order], sell_order_depth: Dict[int, int], past_trades: PastData, product: str):
+        # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
+        for price, quantity in sell_order_depth.items():
+                current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
+                if current_sma == 0:
+                    break
+                if price <= current_sma - self.TICK_SIZE:
+                    order_quantity = min(abs(self.positions[product]), abs(quantity))
+                    #order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), abs(quantity))
+                    if order_quantity > 0:
+                        self.positions[product] += order_quantity
+                        orders.append(Order(product, price, order_quantity))                        
+                        print(f"Buy: ${price}, {quantity}")
+                        print(f"position: {self.positions[product]}")
+            
 
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
@@ -142,7 +193,7 @@ class Trader:
                     print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
 
 
-                # Get rid of past own_trades that gave been closed           
+                # Get rid of past own_trades that have been closed           
                 self.compute_open_pos(state, past_trades, product)
                 print(f"{product} updated open positions: {len(past_trades.open_positions[product])}")
                 for pos in past_trades.open_positions[product]:
@@ -157,11 +208,11 @@ class Trader:
                 # Add the past market trades and own trades into traderData
                 past_trades.market_data[product] += [(trade.price, trade.quantity) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]    
                 
-                if len(past_trades.market_data[product]) > self.WINDOW_SIZE[product]:         
-                    past_trades.market_data[product] = past_trades.market_data[product][-self.WINDOW_SIZE[product]:]
+                # if len(past_trades.market_data[product]) > self.WINDOW_SIZE[product]:         
+                #     past_trades.market_data[product] = past_trades.market_data[product][-self.WINDOW_SIZE[product]:]
                 
                 print(f"{product} Past Market Data")
-                for trade in past_trades.market_data[product]:
+                for trade in past_trades.market_data[product][-self.WINDOW_SIZE[product]:]:
                     print(trade)    
 
                       
@@ -176,34 +227,34 @@ class Trader:
             if len(state.order_depths[product].sell_orders) > 0:      
                 sell_order_depth = state.order_depths[product].sell_orders
 
-            current_sma: float    
-            # Go through each buy order depth to see if there's a good opportunity to match the order by selling 
-            for price, quantity in buy_order_depth.items():
-                current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
-                #print(f"current SMA: {current_sma}")
-                if current_sma == 0:
-                    break                
-                if price >= current_sma + self.TICK_SIZE:                    
-                    order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), quantity)
-                    if order_quantity > 0:
-                        orders.append(Order(product, price, -order_quantity))
-                        self.positions[product] += -order_quantity
-                        print(f"Sell: ${price}", {quantity})
-                        print(f"position: {self.positions[product]}")
             
-            # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
-            for price, quantity in sell_order_depth.items():
-                    current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
-                    if current_sma == 0:
-                        break
-                    if price <= current_sma - self.TICK_SIZE:
-                        order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), abs(quantity))
-                        if order_quantity > 0:
-                            orders.append(Order(product, price, order_quantity))
-                            self.positions[product] += order_quantity
-                            print(f"Buy: ${price}, {quantity}")
-                            print(f"position: {self.positions[product]}")
+            fair_price = self.calculate_vwap(past_trades.market_data[product], product)    
 
+            
+            if (product not in state.position) and (fair_price != 0.0):
+                # if the order position is at zero, we place an order based on the best bid or best ask
+                best_bid = max(buy_order_depth)
+                best_ask = min(sell_order_depth)
+                #orders.append(Order(product, int(fair_price), 10))
+
+                if abs(fair_price - best_bid) > abs(fair_price - best_ask):                   
+                    order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), buy_order_depth[best_bid])
+                    orders.append(Order(product, best_bid, -order_quantity))
+                    self.positions[product] += -order_quantity
+
+                elif abs(fair_price - best_bid) < abs(fair_price - best_ask):
+                    order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), sell_order_depth[best_ask])
+                    orders.append(Order(product, best_ask, order_quantity))
+                    self.positions[product] += order_quantity
+
+            if product in state.position and state.position[product] > 0:
+                # Go through each buy order depth to see if there's a good opportunity to match the order by selling 
+                self.compute_sell_orders_sma(orders, buy_order_depth, past_trades, product)
+            
+            elif product in state.position and state.position[product] < 0:
+                # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
+                self.compute_buy_orders_sma(orders, sell_order_depth, past_trades, product)
+               
             
             result[product] = orders
         

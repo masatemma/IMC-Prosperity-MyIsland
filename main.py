@@ -1,5 +1,5 @@
 from datamodel import Listing, OrderDepth, Trade, TradingState
-from Trader_Test_2 import Trader
+from Trader_Test_3 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
 
