@@ -1,4 +1,4 @@
-from datamodel import Listing, OrderDepth, Trade, TradingState
+from datamodel import Listing, OrderDepth, Trade, TradingState, Order
 from Trader_Test_3 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
@@ -20,8 +20,8 @@ listings = {
 
 order_depths = {
 	"AMETHYSTS": OrderDepth(
-		buy_orders={10: 7, 9: 5},
-		sell_orders={10: -3, 11: -4, 12: -8}
+		buy_orders={13: 7, 9: 5},
+		sell_orders={10: -3, 11: -5, 12: -8}
 	),
 	"STARFRUIT": OrderDepth(
 		buy_orders={142: 3, 141: 5},
@@ -74,7 +74,7 @@ market_trades = {
 }
 
 position = {
-	"AMETHYSTS": 3,
+	"AMETHYSTS": 0,
 	"STARFRUIT": -5
 }
 
@@ -101,9 +101,12 @@ class PastData:
 
 
 if __name__ == '__main__':
-	trader = Trader()
-	past_trades = PastData()	
-	past_trades.market_data = {'AMETHYSTS': [(1,10)], 'STARFRUIT': [(1,3)]}         
-	state.traderData = jsonpickle.encode(past_trades)
-	trader.run(state)
+    trader = Trader()
+    past_trades = PastData()	
+    past_trades.market_data = {'AMETHYSTS': [(1,10)], 'STARFRUIT': [(1,3)]}         
+    state.traderData = jsonpickle.encode(past_trades)    
+
+    result, conversions, traderData = trader.run(state)
+    print(result)    
+    
     
