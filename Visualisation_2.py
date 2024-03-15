@@ -94,7 +94,7 @@ class PastData:
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {}      
 
 class Trader:
-    WINDOW_SIZE = 4
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 6}  
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
     TICK_SIZE = 1
@@ -119,8 +119,8 @@ class Trader:
     Taking the past trading prices and the window size arguments.
     Returns the simple moving average value. 
     """
-    def calculate_sma(self, past_market_data: List[Tuple[float, int]], order_depth_price: float) -> float:  
-            if len(past_market_data) + 1 < self.WINDOW_SIZE:
+    def calculate_sma(self, past_market_data: List[Tuple[float, int]], order_depth_price: float, product: str) -> float:  
+            if len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
                 return 0.0
                       
             past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data)
@@ -128,7 +128,7 @@ class Trader:
             past_trades_sum_price += order_depth_price
             mean_value = float(past_trades_sum_price / (len(past_market_data) + 1))
 
-            return mean_value                 
+            return mean_value                
     
     """
     Taking the trading state, past market data and the product name as arguments
@@ -175,19 +175,18 @@ class Trader:
     """
     def run(self, state: TradingState) -> tuple[dict[Symbol, list[Order]], int, str]:
         result = {}
-        conversions = 0
+        conversions = 1
         traderData = ""   
 
         # TODO: Add logic
-         # Record past market trades prices
+        # Record past market trades prices
         past_trades = PastData()
         past_trades.market_data = {'AMETHYSTS': [], 'STARFRUIT': []}     
         past_trades.open_positions = {'AMETHYSTS': [], 'STARFRUIT': []}        
 
         # Check if there's data in traderData
         if len(state.traderData) > 0:
-            past_trades = jsonpickle.decode(state.traderData)            
-                                  
+            past_trades = jsonpickle.decode(state.traderData)                                
 
         # Decide trade for each product  
         for product in state.listings:              
@@ -201,8 +200,8 @@ class Trader:
             if product in state.position:       
                 self.positions[product] = state.position[product]
             
-            logger.print(f"product name: {product}")
-            logger.print(f"starting_position: {self.positions[product]}")
+            print(f"product name: {product}")
+            print(f"starting_position: {self.positions[product]}")
            
             
             # Combine all trades from own trades and market trades to calculate vwap                  
@@ -219,16 +218,16 @@ class Trader:
                         elif trade.seller == "SUBMISSION":
                              past_trades.open_positions[product].append((trade.price, -trade.quantity))            
 
-                logger.print(f"{product} open positions: {len(past_trades.open_positions[product])}")
+                print(f"{product} open positions: {len(past_trades.open_positions[product])}")
                 for pos in past_trades.open_positions[product]:
                     print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
 
 
                 # Get rid of past own_trades that gave been closed           
                 self.compute_open_pos(state, past_trades, product)
-                logger.print(f"{product} updated open positions: {len(past_trades.open_positions[product])}")
+                print(f"{product} updated open positions: {len(past_trades.open_positions[product])}")
                 for pos in past_trades.open_positions[product]:
-                   logger.print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
+                    print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
                 
             
             if product in state.market_trades:
@@ -239,15 +238,14 @@ class Trader:
                 # Add the past market trades and own trades into traderData
                 past_trades.market_data[product] += [(trade.price, trade.quantity) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]    
                 
-                if len(past_trades.market_data[product]) > self.WINDOW_SIZE:         
-                    past_trades.market_data[product] = past_trades.market_data[product][-self.WINDOW_SIZE:]
+                if len(past_trades.market_data[product]) > self.WINDOW_SIZE[product]:         
+                    past_trades.market_data[product] = past_trades.market_data[product][-self.WINDOW_SIZE[product]:]
                 
-                logger.print(f"{product} Past Market Data")
+                print(f"{product} Past Market Data")
                 for trade in past_trades.market_data[product]:
-                    logger.print(trade)    
+                    print(trade)    
 
-            
-                          
+                      
             # Initialize the list of Orders to be sent as an empty list
             orders: List[Order] = []  
             buy_order_depth: Dict[int, int]
@@ -262,7 +260,7 @@ class Trader:
             current_sma: float    
             # Go through each buy order depth to see if there's a good opportunity to match the order by selling 
             for price, quantity in buy_order_depth.items():
-                current_sma = self.calculate_sma(past_trades.market_data[product], price)
+                current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
                 #print(f"current SMA: {current_sma}")
                 if current_sma == 0:
                     break                
@@ -271,12 +269,12 @@ class Trader:
                     if order_quantity > 0:
                         orders.append(Order(product, price, -order_quantity))
                         self.positions[product] += -order_quantity
-                        logger.print(f"Sell: ${price}", {quantity})
-                        logger.print(f"position: {self.positions[product]}")
+                        print(f"Sell: ${price}", {quantity})
+                        print(f"position: {self.positions[product]}")
             
             # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
             for price, quantity in sell_order_depth.items():
-                    current_sma = self.calculate_sma(past_trades.market_data[product], price)
+                    current_sma = self.calculate_sma(past_trades.market_data[product], price, product)
                     if current_sma == 0:
                         break
                     if price <= current_sma - self.TICK_SIZE:
@@ -284,12 +282,12 @@ class Trader:
                         if order_quantity > 0:
                             orders.append(Order(product, price, order_quantity))
                             self.positions[product] += order_quantity
-                            logger.print(f"Buy: ${price}, {quantity}")
-                            logger.print(f"position: {self.positions[product]}")
+                            print(f"Buy: ${price}, {quantity}")
+                            print(f"position: {self.positions[product]}")
 
+            
             result[product] = orders
         
-         
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
         
