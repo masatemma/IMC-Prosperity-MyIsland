@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 import string
 import numpy as np
 import jsonpickle
+import math
 
 
 class PastData: 
@@ -15,6 +16,8 @@ class PastData:
 class Trader:
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 6    
     VWAP_WINDOW = 20
+    SF_SELL = 1
+    SF_BUY = 3
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
     TICK_SIZE = 1
@@ -45,15 +48,21 @@ class Trader:
     Returns the simple moving average value. 
     """
     def calculate_sma(self, past_market_data: List[Tuple[float, int]], order_depth_price: float, product: str) -> float:  
-            if len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
-                return 0.0
+            if order_depth_price != 0 and len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
+                return 0
+            elif len(past_market_data) < self.WINDOW_SIZE[product]:
+                return 0
                       
             past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data[-self.WINDOW_SIZE[product]: ])
 
             #print(f"Past market data window size: {past_market_data[-self.WINDOW_SIZE[product]:]}")
             past_trades_sum_price += order_depth_price
-            mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:]) + 1))
-
+            mean_value = 0
+            if order_depth_price != 0:
+                mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:]) + 1))
+            else:
+                mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:])))
+                
             return mean_value                 
     
     """
@@ -150,7 +159,77 @@ class Trader:
                     print(f"Buy: ${price}, {quantity}")
                     print(f"position: {self.positions[product]}")
         return orders
+    
+    """
+    Compute the orders for starfruit. 
+    Place a sell order a bit above the Bid price from bots and 
+    place a buy order a well below the simple moving average
+    """
+    def compute_starfruit_orders(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
+        if (product != "STARFRUIT"):
+            return None
+        
+        orders: List[Order] = []   
+                      
+        if self.positions[product] >= 0:
+            # Selling at a price a bit above the best bid price in the order depth            
+            best_bid, best_bid_amount = list(buy_order_depth.items())[0]            
+            sma =  self.calculate_sma(past_trades.market_data[product], best_bid, product) 
+            if sma != 0  and best_bid > sma:                            
+                order_amount = self.positions[product] + self.POSITION_LIMIT[product]
+                orders.append(Order(product, best_bid + self.SF_SELL, - order_amount))
+                self.positions[product] += -order_amount
             
+        elif self.positions[product] < 0:
+            # Buying at a price way below the SMA
+            best_ask, best_ask_amount = list(sell_order_depth.items())[0]  
+            sma = self.calculate_sma(past_trades.market_data[product], best_ask, product) 
+            if sma != 0:          
+                order_amount = abs(self.positions[product]) + self.POSITION_LIMIT[product]
+                orders.append(Order(product, math.floor(sma) - self.SF_BUY, order_amount))
+                self.positions[product] += order_amount
+                
+        print(orders)
+        
+        return orders
+    
+    
+    """
+    Uses Scraping strategy to place orders
+    """
+    def scraping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
+        orders: List[Order] = []          
+        fair_price = self.calculate_vwap(past_trades.market_data[product], product)    
+         # Scraping Strategy
+        if self.positions[product] == 0 and fair_price != 0.0:
+            # if the order position is at zero, we place an order based on the best bid or best ask                  
+            print("USING HERE 1")                
+                
+            best_bid = max(buy_order_depth)
+            best_ask = min(sell_order_depth) 
+            if abs(fair_price - best_bid) > abs(fair_price - best_ask):                   
+                order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), buy_order_depth[best_bid])
+                orders.append(Order(product, best_bid, -order_quantity))
+                self.positions[product] += -order_quantity
+
+            elif abs(fair_price - best_bid) < abs(fair_price - best_ask):
+                order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), sell_order_depth[best_ask])
+                orders.append(Order(product, best_ask, order_quantity))
+                self.positions[product] += order_quantity        
+        # if state.position[product] == 0 and (fair_price != 0.0):
+        #     print("USING HERE 2")
+        #     orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        #     orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)                    
+            
+        elif self.positions[product] > 0:
+            # Go through each buy order depth to see if there's a good opportunity to match the order by selling 
+            orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        
+        elif self.positions[product] < 0:
+            # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
+            orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
+
+        return orders
 
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
@@ -184,6 +263,8 @@ class Trader:
             if product in state.position:       
                 self.positions[product] = state.position[product]                        
                 print(f"Actual starting_position: {state.position[product]}")
+            elif product not in state.position:
+                self.positions[product] = 0
                 
             print(f"Starting position: {self.positions[product]}")
            
@@ -229,45 +310,26 @@ class Trader:
 
             # Separate buy order depths and sell order depths
             if len(state.order_depths[product].buy_orders) > 0:       
-                buy_order_depth = state.order_depths[product].buy_orders
+                buy_order_depth = state.order_depths[product].buy_orders                
             if len(state.order_depths[product].sell_orders) > 0:      
                 sell_order_depth = state.order_depths[product].sell_orders
             
             # Calculate the fair price of the product using VWAP
             fair_price = self.calculate_vwap(past_trades.market_data[product], product)    
             
-            #
-            if (product not in state.position) and (fair_price != 0.0):
-                # if the order position is at zero, we place an order based on the best bid or best ask                  
-                print("USING HERE 1")                
-                    
-                best_bid = max(buy_order_depth)
-                best_ask = min(sell_order_depth) 
-                if abs(fair_price - best_bid) > abs(fair_price - best_ask):                   
-                    order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), buy_order_depth[best_bid])
-                    orders.append(Order(product, best_bid, -order_quantity))
-                    self.positions[product] += -order_quantity
+            if product == "STARFRUIT":
+                print("STARFRUIT Strategy")
+                orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product)
 
-                elif abs(fair_price - best_bid) < abs(fair_price - best_ask):
-                    order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), sell_order_depth[best_ask])
-                    orders.append(Order(product, best_ask, order_quantity))
-                    self.positions[product] += order_quantity
-
-            elif product in state.position:
-                if state.position[product] == 0 and (fair_price != 0.0):
-                    print("USING HERE 2")
-                    orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
-                    orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)                    
-                    
-                elif state.position[product] > 0:
-                    # Go through each buy order depth to see if there's a good opportunity to match the order by selling 
-                    orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
                 
-                elif state.position[product] < 0:
-                    # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
-                    orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
-               
-            
+            elif product == "AMETHYSTS":
+                # Scraping Strategy
+                if (product not in state.position) and (fair_price != 0.0):
+                    # if the order position is at zero, we place an order based on the best bid or best ask                  
+                    print("USING HERE 1")                
+                    orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product)    
+                    
+
             result[product] = orders
         
         # Serialize past trades into traderData
