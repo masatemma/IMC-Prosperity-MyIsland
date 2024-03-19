@@ -256,6 +256,7 @@ class Trader:
             
             if product not in past_trades.market_data:
                 past_trades.market_data[product] = []
+
             if product not in past_trades.open_positions:
                 past_trades.open_positions[product] = []
 
@@ -269,7 +270,7 @@ class Trader:
             print(f"Starting position: {self.positions[product]}")
            
             
-            # Combine all trades from own trades and market trades to calculate vwap                  
+            # Combine all trades from own trades and market trades                
             all_trades: List[Trade] = []
             
             if product in state.own_trades:
