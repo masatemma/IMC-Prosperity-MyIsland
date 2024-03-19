@@ -154,6 +154,7 @@ class Trader:
         for price, quantity in sell_order_depth.items():
             current_sma = self.calculate_sma(past_trades.market_data[product], price, product, cur_timestamp)
             print(f"current SMA: {current_sma}")
+            print(f"Price:{price}") 
             if current_sma == 0:
                 print("break")
                 break
@@ -335,8 +336,8 @@ class Trader:
             
             if product == "STARFRUIT":
                 print("STARFRUIT Strategy")
-                orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-
+                #orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
+                orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
                 
             elif product == "AMETHYSTS":
                 # Scraping Strategy          
