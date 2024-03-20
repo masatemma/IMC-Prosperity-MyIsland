@@ -23,6 +23,7 @@ class Trader:
     TICK_SIZE = 1
     PD_PRICE_INDEX = 0
     PD_QUANTITY_INDEX = 1
+    PD_TIMESTAMP_INDEX = 2
 
     """
     Taking the past trades as an argument,including own_trades and market_trades for a specific product.
@@ -45,27 +46,51 @@ class Trader:
     
     """
     Taking the past trading data, price of an order depth, the product name and the current timestamp as arguments.
-    Returns the simple moving average value. 
+    Calculates the simple moving average value based on the number of past trades
     """
-    def calculate_sma(self, past_market_data: List[Tuple[float, int]], order_depth_price: float, product: str, cur_timestamp: int) -> float:  
+    def calculate_sma(self, past_market_data: List[Tuple[float, int, int]], order_depth_price: float, product: str, cur_timestamp: int) -> float:  
             
-            if order_depth_price != 0 and len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
-                return 0
-            elif  order_depth_price == 0 and len(past_market_data) < self.WINDOW_SIZE[product]:
-                return 0
-                      
-            past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data[-self.WINDOW_SIZE[product]: ])
+        if order_depth_price != 0 and len(past_market_data) + 1 < self.WINDOW_SIZE[product]:
+            return 0
+        elif  order_depth_price == 0 and len(past_market_data) < self.WINDOW_SIZE[product]:
+            return 0
+                    
+        past_trades_sum_price = sum(data[self.PD_PRICE_INDEX] for data in past_market_data[-self.WINDOW_SIZE[product]: ])
 
-            #print(f"Past market data window size: {past_market_data[-self.WINDOW_SIZE[product]:]}")
+        #print(f"Past market data window size: {past_market_data[-self.WINDOW_SIZE[product]:]}")
+        
+        mean_value: float
+        if order_depth_price != 0:
+            past_trades_sum_price += order_depth_price
+            mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:]) + 1))
+        else:
+            mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:])))
             
-            mean_value: float
-            if order_depth_price != 0:
-                past_trades_sum_price += order_depth_price
-                mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:]) + 1))
-            else:
-                mean_value = float(past_trades_sum_price / (len(past_market_data[-self.WINDOW_SIZE[product]:])))
-                
-            return mean_value 
+        return mean_value 
+    
+    
+    """
+    Taking the past trading data, price of an order depth, the product name and the current timestamp as arguments.
+    Calculates the simple moving average value based on the timestamps
+    """
+    def calculate_sma_time(self, past_market_data: List[Tuple[float, int, int]], order_depth_price: float, product: str, cur_timestamp: int) -> float:
+        target_timestamp = cur_timestamp - (self.WINDOW_SIZE[product] * 100) 
+        past_trades_sum_price = 0
+        past_trades_count = 0
+
+        if target_timestamp >= 0:
+            for trade in reversed(past_market_data):
+                if (trade[self.PD_TIMESTAMP_INDEX] >= target_timestamp):
+                    past_trades_sum_price += trade[self.PD_PRICE_INDEX]
+                    past_trades_count += 1
+                else:
+                    break
+        
+        if past_trades_count == 0:
+            return 0
+
+        return past_trades_sum_price / past_trades_count
+
 
     """
     Taking the past trading data, price of an order depth, the product name and the current timestamp as arguments.
@@ -121,6 +146,7 @@ class Trader:
     Return sell orders based on SMA
     """
     def compute_sell_orders_sma(self, buy_order_depth: Dict[int, int], past_trades: PastData, product: str, cur_timestamp: int):
+        print("Compute sell order")
         orders: List[Order] = []  
         for price, quantity in buy_order_depth.items():
             current_sma = self.calculate_sma(past_trades.market_data[product], price, product, cur_timestamp)
@@ -149,6 +175,7 @@ class Trader:
     Return buy orders based on SMA
     """
     def compute_buy_orders_sma(self, sell_order_depth: Dict[int, int], past_trades: PastData, product: str, cur_timestamp: int):
+        print("Compute buy order")
         orders: List[Order] = []  
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
         for price, quantity in sell_order_depth.items():
@@ -318,7 +345,7 @@ class Trader:
             if len(all_trades) > 0:                                                                    
                 # Add the past market trades and own trades into traderData
                 past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                    
-                print(f"{product} Past Market Data Size: {len(past_trades.market_data[product])}")                
+                print(f"{product} Past Market Data Size: {past_trades.market_data[product]}")                
                       
             # Initialize the list of Orders to be sent as an empty list
             orders: List[Order] = []  
