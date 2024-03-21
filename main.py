@@ -1,5 +1,5 @@
 from datamodel import Listing, OrderDepth, Trade, TradingState, Order
-from Trader_Test_4 import Trader
+from Trader_Test_6 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
 
@@ -98,12 +98,12 @@ class PastData:
     def __init__(self):
         self.market_data: Dict[str:List[Tuple]] = {}
         self.open_positions: Dict[str:List[Tuple]] = {}      
-
-
+        self.prev_mid = -1
+        
 if __name__ == '__main__':
     trader = Trader()
     past_trades = PastData()	
-    past_trades.market_data = {'AMETHYSTS': [(1,10, 500), (1, 10, 700)], 'STARFRUIT': [(1,3,300)]}         
+    past_trades.market_data = {'AMETHYSTS': [(1,10, 500), (1, 10, 700)], 'STARFRUIT': [(1,3,300)]}          
     state.traderData = jsonpickle.encode(past_trades)    
 
     result, conversions, traderData = trader.run(state)
