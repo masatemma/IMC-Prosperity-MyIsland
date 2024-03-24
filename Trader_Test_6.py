@@ -4,6 +4,7 @@ import string
 import numpy as np
 import jsonpickle
 import math
+from collections import Counter
 
 
 class PastData: 
@@ -12,6 +13,7 @@ class PastData:
         self.market_data: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity     
         self.prev_mid = -1
+
 
 class Trader:
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT':10}   # best A: 4, S: 10    
@@ -25,8 +27,8 @@ class Trader:
     PD_QUANTITY_INDEX = 1
     PD_TIMESTAMP_INDEX = 2    
     AME_THRESHOLD_MID = 10000
-    AME_THRESHOLD_UP = 10001
-    AME_THRESHOLD_DW = 9999
+    AME_THRESHOLD_UP = 10004
+    AME_THRESHOLD_LOW = 9996
 
     """
     Taking the past trades as an argument,including own_trades and market_trades for a specific product.
@@ -242,11 +244,15 @@ class Trader:
     Place buy  orders if the ask price is below the threshold of Amethysts.
     
     """
-    def compute_amethysts_orders(self, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str) -> List[Order]:
+    def compute_amethysts_orders(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str) -> List[Order]:
         orders: List[Order] = []   
         if product != "AMETHYSTS":
             return 0
 
+
+        temp_pos = self.positions[product]
+        market_make_amount = 9 #9 best
+    
         #Place a sell order if the bid price is above the threshold
         for price, quantity in buy_order_depth.items():
             if price >= self.AME_THRESHOLD_MID:
@@ -257,42 +263,41 @@ class Trader:
                     order_quantity = min((self.POSITION_LIMIT[product] + self.positions[product]), abs(quantity))
 
                 orders.append(Order(product, price, -order_quantity))
-                self.positions[product] += -order_quantity
+                self.positions[product] += -order_quantity  
 
+          #Market making: sell at upper bound
+        if abs(self.positions[product]) < self.POSITION_LIMIT[product]:
+            if self.positions[product] > 0:            
+                order_amount = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), market_make_amount)                     
+            else: 
+                order_amount = min((self.POSITION_LIMIT[product] + self.positions[product]), market_make_amount)
+            orders.append(Order(product, self.AME_THRESHOLD_UP, -order_amount))    
+            self.positions[product] += -order_amount  
+                   
+       
         # Place a buy order if the ask price is below the threshold
         for price, quantity in sell_order_depth.items():
             if price <= self.AME_THRESHOLD_MID:
                 order_quantity: int
-                if self.positions[product] < 0:
-                    order_quantity = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), abs(quantity))
+                if temp_pos < 0:
+                    order_quantity = min((self.POSITION_LIMIT[product] + abs(temp_pos)), abs(quantity))
                 else: 
-                    order_quantity = min((self.POSITION_LIMIT[product] - self.positions[product]), abs(quantity))
+                    order_quantity = min((self.POSITION_LIMIT[product] - temp_pos), abs(quantity))
                 
                 orders.append(Order(product, price, order_quantity))
-                self.positions[product] += order_quantity
-                           
+                temp_pos += order_quantity
+        
+      
+         #Market making: buy at lower bound
+        if abs(temp_pos) < self.POSITION_LIMIT[product]:
+            if temp_pos < 0:
+                order_amount = min((self.POSITION_LIMIT[product] + abs(temp_pos)), market_make_amount)
+            else:
+                order_amount = min((self.POSITION_LIMIT[product] - temp_pos), market_make_amount)          
+            orders.append(Order(product, self.AME_THRESHOLD_LOW, order_amount))
+            temp_pos += order_amount  
 
-        # best_bid_price, best_bid_quantity = list(buy_order_depth.items())[0]
-        # if best_bid_price >= self.AME_THRESHOLD_DW:
-        #     order_quantity: int
-        #     if self.positions[product] > 0:
-        #         order_quantity = self.POSITION_LIMIT[product] + abs(self.positions[product])
-        #     else: 
-        #         order_quantity = self.POSITION_LIMIT[product] + self.positions[product]                
-        #     orders.append(Order(product, best_bid_price, -order_quantity))
-        #     self.positions[product] += -order_quantity
 
-        # best_ask_price, best_ask_quantity = list(sell_order_depth.items())[0]
-        # if best_ask_price <= self.AME_THRESHOLD_UP:
-        #     order_quantity: int
-        #     if self.positions[product] < 0:
-        #         order_quantity = self.POSITION_LIMIT[product] + abs(self.positions[product])
-        #     else: 
-        #         order_quantity = self.POSITION_LIMIT[product] - self.positions[product]                
-        #     orders.append(Order(product, best_ask_price, order_quantity))
-        #     self.positions[product] += order_quantity
-
-    
         return orders
 
 
@@ -384,7 +389,7 @@ class Trader:
                 
             elif product == "AMETHYSTS":
                 # Scraping Strategy              
-                orders += self.compute_amethysts_orders(buy_order_depth, sell_order_depth, product)
+                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
                 #orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
 
             result[product] = orders
