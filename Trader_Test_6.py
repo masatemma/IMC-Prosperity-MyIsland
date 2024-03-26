@@ -2,6 +2,7 @@ from datamodel import OrderDepth, UserId, TradingState, Order, Trade
 from typing import Dict, List, Tuple
 import string
 import numpy as np
+import pandas as pd
 import jsonpickle
 import math
 from collections import Counter
@@ -227,6 +228,43 @@ class Trader:
 
         return orders
     
+    def predict_price_lr(self, past_trades: PastData, n_past_timestamps : int, cur_timestamp: int, product: str):
+        market_trade = past_trades.market_data[product] 
+
+        sorted_market_trade = sorted(market_trade, key=lambda x: x[self.PD_TIMESTAMP_INDEX])
+        # Create DataFrame
+        df = pd.DataFrame(sorted_market_trade, columns=['Price', 'Quantity', 'Timestamp'])
+
+        # Step 1: Preprocess - Average prices for the same timestamp
+        df_avg = df.groupby('Timestamp').agg({'Price': 'mean'}).reset_index()
+
+        # Step 2: Filter rows to only include those before the current timestamp
+        df_filtered = df_avg[df_avg['Timestamp'] <= cur_timestamp]
+
+        # Ensure we're selecting the last n unique timestamps leading up to the current timestamp
+        if len(df_filtered) > n_past_timestamps:
+            df_filtered = df_filtered.iloc[-n_past_timestamps:]
+        else:
+            return None
+
+
+        # Linear Regression
+        # Assuming equally spaced timestamps in terms of their order
+        X = np.arange(len(df_filtered)).reshape(-1, 1)
+        ones = np.ones(len(X)).reshape(-1, 1)
+        X = np.hstack((X, ones))  # Add intercept term
+        Y = df_filtered['Price'].values.reshape(-1, 1)
+
+        # Calculate coefficients
+        coefficients = np.linalg.inv(X.T.dot(X)).dot(X.T).dot(Y)
+        slope = coefficients[0][0]
+        intercept = coefficients[1][0]
+
+        future_X_value = (cur_timestamp / 100) + 1
+        predicted_price = slope * future_X_value + intercept
+        print(predicted_price)
+
+        return predicted_price
     
     """
     Uses Scraping strategy to place orders
@@ -368,7 +406,7 @@ class Trader:
             # Store the past trades into the past data object
             if len(all_trades) > 0:                                                                    
                 # Add the past market trades and own trades into traderData
-                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                  
+                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 ]                                                                  
                       
             # Initialize the list of Orders to be sent as an empty list
             orders: List[Order] = []  
@@ -386,12 +424,14 @@ class Trader:
             if product == "STARFRUIT":
                 orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
                 #orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
+                predicted_price = self.predict_price_lr(past_trades, 10, state.timestamp, product)
+                print(f"predcited price: {predicted_price}")
                 
             elif product == "AMETHYSTS":
                 # Scraping Strategy              
                 orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
                 #orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-
+                print(f"Past Data Size: {len(past_trades.market_data[product])}")
             result[product] = orders
         
         # Serialize past trades into traderData
