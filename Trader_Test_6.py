@@ -98,6 +98,9 @@ class Trader:
         return past_trades_sum_price / past_trades_count
                         
     
+    def calculate_mean_price_timestamp(self):
+        return 
+
     """
     Taking the trading state, past market data and the product name as arguments
     Compute the open positions for that particular product
@@ -267,9 +270,9 @@ class Trader:
         return predicted_price
     
     """
-    Uses Scraping strategy to place orders
+    Uses Scalping strategy to place orders
     """
-    def scraping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str, cur_timestamp: int):
+    def scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str, cur_timestamp: int):
         orders: List[Order] = []          
 
         orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product, cur_timestamp)
@@ -423,15 +426,13 @@ class Trader:
             # Trade differently for each product
             if product == "STARFRUIT":
                 orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-                #orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
-                predicted_price = self.predict_price_lr(past_trades, 10, state.timestamp, product)
-                print(f"predcited price: {predicted_price}")
+                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
                 
-            elif product == "AMETHYSTS":
-                # Scraping Strategy              
+            elif product == "AMETHYSTS":                          
                 orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
-                #orders += self.scraping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
+                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
                 print(f"Past Data Size: {len(past_trades.market_data[product])}")
+                
             result[product] = orders
         
         # Serialize past trades into traderData
