@@ -20,8 +20,8 @@ listings = {
 
 order_depths = {
 	"AMETHYSTS": OrderDepth(
-		buy_orders={13: 7, 9: 5},
-		sell_orders={10: -3, 11: -5, 12: -8}
+		buy_orders={10000: 7, 10001: 5},
+		sell_orders={10003: -3, 10002: -5, 10000: -8}
 	),
 	"STARFRUIT": OrderDepth(
 		buy_orders={142: 3, 141: 5},
@@ -34,7 +34,7 @@ own_trades = {
 	"AMETHYSTS": [
           Trade(
 			symbol="AMETHYSTS",
-			price=9,
+			price=10000,
 			quantity=3,
 			buyer="SUBMISSION",
 			seller="",
@@ -42,7 +42,7 @@ own_trades = {
 		),
         Trade(
 			symbol="AMETHYSTS",
-			price=20,
+			price=9999,
 			quantity=1,
 			buyer="SUBMISSION",
 			seller="",
@@ -55,7 +55,7 @@ market_trades = {
 	"AMETHYSTS": [
 		Trade(
 			symbol="AMETHYSTS",
-			price=11,
+			price=10001,
 			quantity=4,
 			buyer="",
 			seller="",
@@ -63,7 +63,7 @@ market_trades = {
 		),
         Trade(
 			symbol="AMETHYSTS",
-			price=20,
+			price=10002,
 			quantity=4,
 			buyer="",
 			seller="",
@@ -103,8 +103,10 @@ class PastData:
         
 if __name__ == '__main__':
     trader = Trader()
-    # past_trades = PastData()	       
-    # state.traderData = jsonpickle.encode(past_trades)    
+    past_trades = PastData()	       
+    past_trades.market_trades = {"AMETHYSTS": {700: [(10001, 3), (10005, 4)], 800: [(10001, 3), (10005, 4)]}, "STARFRUIT": {}}
+    past_trades.own_trades = {"AMETHYSTS": {700: [(10001, 3), (10005, 4)], 800: [(10001, 3), (10005, 4)]}, "STARFRUIT": {}}
+    state.traderData = jsonpickle.encode(past_trades, keys=True)    
 
     result, conversions, traderData = trader.run(state)
     print(result)    

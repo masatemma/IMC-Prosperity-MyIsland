@@ -11,13 +11,14 @@ from collections import Counter
 class PastData: 
 
     def __init__(self):
-        self.market_trades: Dict[str, Dict[int, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}}
-        self.own_trades: Dict[str, Dict[int, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}}
-        self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity     
+        self.market_trades: Dict[str, Dict[str, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}} 
+        self.own_trades: Dict[str, Dict[str, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}} the quantity is always positive
+        self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity (the quantity can be negative or positive)
         self.prev_mid = -1
 
 
 class Trader:
+    PAST_DATA_SIZE = 2000
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT':10}   # best A: 4, S: 10    
     VWAP_WINDOW = 20
     SF_SELL = 1
@@ -62,7 +63,7 @@ class Trader:
         
         trade_count = 1
         sum_price = 0
-        reverse_market_trades = sorted((past_trades.market_trades[product]).items())
+        reverse_market_trades = reversed(past_trades.market_trades[product].items())    
         for timestamp, trades in reverse_market_trades:
             if len(trades) > 0:
                 for trade in trades:                
@@ -82,8 +83,7 @@ class Trader:
             
             
         return mean_value
-    
-    
+
 
     """
     Taking the past trading data, price of an order depth, the product name and the current timestamp, and the desired number of timestamps as arguments.
@@ -96,7 +96,7 @@ class Trader:
         if len(past_trades.market_trades[product]) == 0:
             return None
         
-        reverse_market_trades = list(reversed(sorted((past_trades.market_trades[product]).items())))
+        reverse_market_trades = reversed(past_trades.market_trades[product].items())       
 
         if target_timestamp < 0:
             return None
@@ -105,7 +105,7 @@ class Trader:
         data_point_count = 0
         for timestamp, trades in reverse_market_trades:   
             if len(trades) > 0:
-                if timestamp >= target_timestamp:
+                if int(timestamp) >= target_timestamp:
                     mean_price = self.calculate_mean_price_timestamp(trades)
                     price_sums += mean_price
                     data_point_count += 1
@@ -123,7 +123,7 @@ class Trader:
         highest = max(timestamp_trades, key=lambda x: x[0])[self.PD_PRICE_INDEX]
         lowest = min(timestamp_trades, key=lambda x: x[0])[self.PD_PRICE_INDEX]
 
-        return highest + lowest / 2
+        return (highest + lowest) / 2
 
     """
     Taking the trading state, past market data and the product name as arguments
@@ -347,7 +347,7 @@ class Trader:
             past_trades.own_trades = {'AMETHYSTS': {}, 'STARFRUIT': {}}    
             past_trades.open_positions = {'AMETHYSTS': [], 'STARFRUIT': []}
         else:
-            past_trades = jsonpickle.decode(state.traderData)                                
+            past_trades = jsonpickle.decode(state.traderData)                        
 
         # Place orders for each product  
         for product in state.listings:              
@@ -398,13 +398,18 @@ class Trader:
                 
             
             if product in state.market_trades:
-                market_trades = state.market_trades[product]                                         
+                market_trades = state.market_trades[product]  
+                new_timestamp = str(state.timestamp - 100)                               
                 # Add past market trades by bots into past_trades   
-                if int(state.timestamp) - 100 in past_trades.market_trades[product]:
-                    past_trades.market_trades[product][int(state.timestamp) - 100] +=  [(trade.price, trade.quantity) for trade in market_trades if trade.timestamp == state.timestamp - 100]       
-                else:
-                    past_trades.market_trades[product][int(state.timestamp) - 100] = [(trade.price, trade.quantity) for trade in market_trades if trade.timestamp == state.timestamp - 100]       
+                if new_timestamp in past_trades.market_trades[product]:         
+                    past_trades.market_trades[product][new_timestamp] +=  [(trade.price, trade.quantity) for trade in market_trades if trade.timestamp == state.timestamp - 100]       
+                else:                
+                    past_trades.market_trades[product][new_timestamp] = [(trade.price, trade.quantity) for trade in market_trades if trade.timestamp == state.timestamp - 100]       
                 
+            if state.timestamp > self.PAST_DATA_SIZE:
+               first_key = next(iter(past_trades.market_trades[product]))
+               del past_trades.market_trades[product][first_key]
+               
 
 
             # Initialize the list of Orders to be sent as an empty list
@@ -419,7 +424,7 @@ class Trader:
                 sell_order_depth = state.order_depths[product].sell_orders
 
             
-            print(f"SMA timestamp: {self.calculate_sma_time(past_trades, product, state.timestamp, 3)}")
+            print(f"SMA timestamp: {self.calculate_sma_time(past_trades, product, state.timestamp, 5)}")
 
             # Trade differently for each product
             if product == "STARFRUIT":
@@ -433,7 +438,7 @@ class Trader:
             result[product] = orders
         
         # Serialize past trades into traderData
-        traderData = jsonpickle.encode(past_trades) 
+        traderData = jsonpickle.encode(past_trades)
         
         # Sample conversion request. Check more details below. 
         conversions = 1

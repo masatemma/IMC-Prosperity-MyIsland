@@ -17,10 +17,9 @@ class PastData:
 
 
 class Trader:
-    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT':10}   # best A: 4, S: 10    
+    PAST_DATA_MAX = 10000
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10
     VWAP_WINDOW = 20
-    SF_SELL = 1
-    SF_BUY = 2
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
     TICK_SIZE = 1
@@ -54,7 +53,7 @@ class Trader:
     Taking the past trading data, price of an order depth, the product name and the current timestamp as arguments.
     Calculates the simple moving average value based on the number of past trades
     """
-    def calculate_sma(self, past_trades: PastData, order_depth_price: float, product: str, cur_timestamp: int) -> float:  
+    def calculate_sma(self, past_trades: PastData, order_depth_price: float, product: str) -> float:  
             
         if order_depth_price != 0 and len(past_trades.market_data[product]) + 1 < self.WINDOW_SIZE[product]:
             return 0
@@ -151,7 +150,7 @@ class Trader:
         orders: List[Order] = []  
 
         for price, quantity in buy_order_depth.items():
-            current_sma = self.calculate_sma(past_trades, price, product, cur_timestamp)
+            current_sma = self.calculate_sma(past_trades, price, product)
             
             if current_sma == 0:
                 break                
@@ -175,7 +174,7 @@ class Trader:
         orders: List[Order] = []  
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
         for price, quantity in sell_order_depth.items():
-            current_sma = self.calculate_sma(past_trades, price, product, cur_timestamp)
+            current_sma = self.calculate_sma(past_trades, price, product)
             if current_sma == 0:
                 break
             if price <= current_sma - self.TICK_SIZE:
@@ -409,8 +408,17 @@ class Trader:
             # Store the past trades into the past data object
             if len(all_trades) > 0:                                                                    
                 # Add the past market trades and own trades into traderData
-                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 ]                                                                  
-                      
+                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                  
+            
+            # Delete extra past data
+            if state.timestamp >= self.PAST_DATA_MAX:
+                for trade in past_trades.market_data[product]:
+                    if trade[self.PD_TIMESTAMP_INDEX] == state.timestamp - self.PAST_DATA_MAX:
+                        del past_trades.market_data[product][0]
+                    elif trade[self.PD_TIMESTAMP_INDEX] > state.timestamp - self.PAST_DATA_MAX:
+                        break 
+                        
+
             # Initialize the list of Orders to be sent as an empty list
             orders: List[Order] = []  
             buy_order_depth: Dict[int, int]
@@ -425,8 +433,8 @@ class Trader:
             self.calculate_sma_time(past_trades, product, state.timestamp, 3)
             # Trade differently for each product
             if product == "STARFRUIT":
-                orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
+                #orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
+                orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
                 
             elif product == "AMETHYSTS":                          
                 orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
