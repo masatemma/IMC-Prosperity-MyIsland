@@ -12,16 +12,17 @@ class PastData:
 
     def __init__(self):
         self.market_data: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
+        self.own_trades: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity     
         self.prev_mid = -1
 
 
-class Trader:
-    PAST_DATA_MAX = 10000
-    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10
-    VWAP_WINDOW = 20
+class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
-    positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10   
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 16, 18, 19, 21, 23, 
+    VWAP_WINDOW = 20
+    PAST_DATA_MAX = 10000
     TICK_SIZE = 1
     PD_PRICE_INDEX = 0
     PD_QUANTITY_INDEX = 1
@@ -29,6 +30,10 @@ class Trader:
     AME_THRESHOLD_MID = 10000
     AME_THRESHOLD_UP = 10004
     AME_THRESHOLD_LOW = 9996
+
+    positions = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
+    cur_timestamp = 0
+    
 
     """
     Taking the past trades as an argument,including own_trades and market_trades for a specific product.
@@ -77,28 +82,61 @@ class Trader:
     Taking the past trading data, price of an order depth, the product name and the current timestamp, and the desired number of timestamps as arguments.
     Calculates the simple moving average value based on the timestamps
     """
-    def calculate_sma_time(self, past_trades: PastData, product: str, cur_timestamp: int, window_size: int) -> float:
-        target_timestamp = cur_timestamp - (window_size * 100) 
-        past_trades_sum_price = 0
-        past_trades_count = 0
-
-        if target_timestamp >= 0:
-            for trade in reversed(past_trades.market_data[product]):
-                if (trade[self.PD_TIMESTAMP_INDEX] >= target_timestamp):
-                    past_trades_sum_price += trade[self.PD_PRICE_INDEX]
-                    past_trades_count += 1
-                else:
-                    break
+    def calculate_sma_time(self, past_trades: PastData, product: str) -> float:
+        target_timestamp = self.cur_timestamp - (self.WINDOW_SIZE_TIME[product] * 100) 
+   
+        if len(past_trades.market_data[product]) == 0:
+            return 0
         
-        if past_trades_count == 0:
+        trades_by_timestamp = sorted(self.convert_to_timestamp_dict(past_trades, product).items())
+        reverse_market_trades = reversed(trades_by_timestamp)       
+
+        if target_timestamp < 0:
             return 0
 
-        print(past_trades_sum_price / past_trades_count)
-        return past_trades_sum_price / past_trades_count
+        price_sums = 0
+        data_point_count = 0
+        for timestamp, trades in reverse_market_trades:   
+            if len(trades) > 0:
+                if int(timestamp) >= target_timestamp:
+                    mean_price = self.calculate_mean_price_timestamp(trades)
+                    price_sums += mean_price
+                    data_point_count += 1
+                else:
+                    break  
+
+        if data_point_count > 0:
+            return price_sums / data_point_count                
+
+        return 0
                         
     
-    def calculate_mean_price_timestamp(self):
-        return 
+    """
+    Return a dictionary with the key being the timestamp and the value of being 
+    a list of tuple of the trades with the same timestamp
+    """
+    def convert_to_timestamp_dict(self, past_trades: PastData, product: str):
+        trades_by_timestamp = {}
+
+        for price, quantity, timestamp in past_trades.market_data[product]:
+            # If the timestamp is not yet a key in the dictionary, add it with the current tuple as the first item in a list
+            if timestamp not in trades_by_timestamp:
+                trades_by_timestamp[timestamp] = [(price, quantity)]
+            # If the timestamp is already a key, append the current tuple to the associated list
+            else:
+                trades_by_timestamp[timestamp].append((price, quantity))
+
+        return trades_by_timestamp
+
+    """
+    Using the highest and lowest price of executed orders from a particular timestamp
+    """
+    def calculate_mean_price_timestamp(self, timestamp_trades: List[Tuple[float, int]]):
+                
+        highest = max(timestamp_trades, key=lambda x: x[0])[self.PD_PRICE_INDEX]
+        lowest = min(timestamp_trades, key=lambda x: x[0])[self.PD_PRICE_INDEX]
+
+        return (highest + lowest) / 2 
 
     """
     Taking the trading state, past market data and the product name as arguments
@@ -146,23 +184,29 @@ class Trader:
     """
     Return sell orders based on SMA
     """
-    def compute_sell_orders_sma(self, buy_order_depth: Dict[int, int], past_trades: PastData, product: str, cur_timestamp: int):
+    def compute_sell_orders_sma(self, buy_order_depth: Dict[int, int], past_trades: PastData, product: str):
         orders: List[Order] = []  
+        temp_position = self.positions[product]
+        sorted_buy_order_depth = sorted(buy_order_depth.items())
 
-        for price, quantity in buy_order_depth.items():
-            current_sma = self.calculate_sma(past_trades, price, product)
-            
+        #current_sma = self.calculate_sma(past_trades, 0, product)
+        current_sma = self.calculate_sma_time(past_trades, product)
+        print(f"sell order sma: {current_sma}")
+
+        # Go through each buy order depth to see if there's a good opportunity to match the order by buying
+        for price, quantity in sorted_buy_order_depth:
+           
             if current_sma == 0:
                 break                
             if price >= current_sma + self.TICK_SIZE:  
                 order_quantity: int
-                if self.positions[product] == 0:
-                    order_quantity = quantity
+                if temp_position == 0:
+                    order_quantity = min(self.POSITION_LIMIT[product], quantity)               
                 else:                    
-                    #order_quantity = min(self.POSITION_LIMIT[product] - abs(self.positions[product]), quantity)
-                    order_quantity = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), abs(quantity))
+                    order_quantity = min((self.POSITION_LIMIT[product] + temp_position), quantity)
+                    
                 if order_quantity > 0:
-                    self.positions[product] += -order_quantity
+                    temp_position += -order_quantity
                     orders.append(Order(product, price, -order_quantity))
         return orders
         
@@ -170,22 +214,28 @@ class Trader:
     """
     Return buy orders based on SMA
     """
-    def compute_buy_orders_sma(self, sell_order_depth: Dict[int, int], past_trades: PastData, product: str, cur_timestamp: int):
+    def compute_buy_orders_sma(self, sell_order_depth: Dict[int, int], past_trades: PastData, product: str):
         orders: List[Order] = []  
+        temp_position = self.positions[product]
+        sorted_buy_order_depth = reversed(sorted(sell_order_depth.items()))
+
+        #current_sma = self.calculate_sma(past_trades, 0, product)
+        current_sma = self.calculate_sma_time(past_trades, product)
+        print(f"buy order sma: {current_sma}")
+
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
-        for price, quantity in sell_order_depth.items():
-            current_sma = self.calculate_sma(past_trades, price, product)
+        for price, quantity in sorted_buy_order_depth:            
             if current_sma == 0:
                 break
             if price <= current_sma - self.TICK_SIZE:
                 order_quantity: int
-                if self.positions[product] == 0:
-                    order_quantity = quantity
-                else:                    
-                    #order_quantity = min((self.POSITION_LIMIT[product] - abs(self.positions[product])), abs(quantity))
-                    order_quantity = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), abs(quantity))
+                if temp_position == 0:
+                    order_quantity = min(self.POSITION_LIMIT[product], quantity)     
+                else:
+                    order_quantity = min((self.POSITION_LIMIT[product] - temp_position), abs(quantity))
+               
                 if order_quantity > 0:
-                    self.positions[product] += order_quantity
+                    temp_position += order_quantity
                     orders.append(Order(product, price, order_quantity))                        
         return orders
         
@@ -271,11 +321,11 @@ class Trader:
     """
     Uses Scalping strategy to place orders
     """
-    def scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str, cur_timestamp: int):
+    def scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []          
 
-        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product, cur_timestamp)
-        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product, cur_timestamp)
+        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
 
         return orders
     
@@ -351,12 +401,13 @@ class Trader:
         # Orders to be placed on exchange matching engine
         result = {}
         traderData = ""  
-
+        self.cur_timestamp = state.timestamp
         past_trades: PastData
         # Check if there's data in traderData
         if not state.traderData:
             past_trades = PastData()
-            past_trades.market_data = {'AMETHYSTS': [], 'STARFRUIT': []}     
+            past_trades.market_data = {'AMETHYSTS': [], 'STARFRUIT': []}    
+            past_trades.own_trades = {'AMETHYSTS': [], 'STARFRUIT': []} 
             past_trades.open_positions = {'AMETHYSTS': [], 'STARFRUIT': []}
         else:
             past_trades = jsonpickle.decode(state.traderData)                                
@@ -381,13 +432,14 @@ class Trader:
            
             
             # Combine all trades from own trades and market trades                
-            all_trades: List[Trade] = []
+            own_trades: List[Trade] = []
+            market_trades: List[Trade] = []
             
             if product in state.own_trades:
-                all_trades += state.own_trades[product]  
-
+                own_trades += state.own_trades[product]  
+                past_trades.own_trades[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in own_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                                  
                 # Add own_trades into open positions  
-                for trade in all_trades:
+                for trade in own_trades:
                     if (trade.timestamp == state.timestamp - 100) or (trade.timestamp == state.timestamp):
                         if trade.buyer == "SUBMISSION":
                             past_trades.open_positions[product].append((trade.price, trade.quantity))
@@ -401,24 +453,28 @@ class Trader:
                 for pos in past_trades.open_positions[product]:
                     print(f"(P: {pos[self.PD_PRICE_INDEX]} Q: {pos[self.PD_QUANTITY_INDEX]})")
                 
-            
-            if product in state.market_trades:
-                all_trades += state.market_trades[product]                         
 
             # Store the past trades into the past data object
-            if len(all_trades) > 0:                                                                    
-                # Add the past market trades and own trades into traderData
-                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in all_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                  
-            
+            if product in state.market_trades:
+                market_trades += state.market_trades[product]                         
+                past_trades.market_data[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in market_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                  
+       
+
             # Delete extra past data
             if state.timestamp >= self.PAST_DATA_MAX:
-                for trade in past_trades.market_data[product]:
-                    if trade[self.PD_TIMESTAMP_INDEX] == state.timestamp - self.PAST_DATA_MAX:
-                        del past_trades.market_data[product][0]
-                    elif trade[self.PD_TIMESTAMP_INDEX] > state.timestamp - self.PAST_DATA_MAX:
-                        break 
-                        
 
+                for trade in past_trades.market_data[product][:]:
+                    if trade[self.PD_TIMESTAMP_INDEX] == state.timestamp - self.PAST_DATA_MAX:
+                        past_trades.market_data[product].remove(trade)
+                    else:
+                        break                            
+
+                for trade in past_trades.own_trades[product][:]:
+                    if trade[self.PD_TIMESTAMP_INDEX] == state.timestamp - self.PAST_DATA_MAX:
+                        past_trades.own_trades[product].remove(trade)
+                    else:
+                        break    
+                        
             # Initialize the list of Orders to be sent as an empty list
             orders: List[Order] = []  
             buy_order_depth: Dict[int, int]
@@ -430,15 +486,15 @@ class Trader:
             if len(state.order_depths[product].sell_orders) > 0:      
                 sell_order_depth = state.order_depths[product].sell_orders
 
-            self.calculate_sma_time(past_trades, product, state.timestamp, 3)
+            
             # Trade differently for each product
             if product == "STARFRUIT":
                 #orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-                orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)    
+                orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
-                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
-                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
+                #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
+                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 print(f"Past Data Size: {len(past_trades.market_data[product])}")
                 
             result[product] = orders
