@@ -20,7 +20,8 @@ class PastData:
 class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10   
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 16, 18, 19, 21, 23, 
+    #WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 15} # best A: ?, S: 15
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 6} # 1, 5, 20 
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
@@ -108,9 +109,38 @@ class Trader:
         if data_point_count > 0:
             return price_sums / data_point_count                
 
-        return 0
-                        
+        return 0                       
     
+
+    """
+    Calculate the Volume Weighted SMA for the last `window_size` trades of a product.
+    """
+    def calculate_volume_weighted_sma(self, past_trades: PastData, product: str):        
+        trades_by_timestamp = sorted(self.convert_to_timestamp_dict(past_trades, product).items())
+
+        
+        if len(trades_by_timestamp) < self.WINDOW_SIZE_TIME[product]:
+            return 0
+        
+        recent_trades = trades_by_timestamp[-self.WINDOW_SIZE_TIME[product]:]
+        
+        total_volume = 0
+        total_product = 0
+        for _, trades in recent_trades:
+            if len(trades) > 0:                
+                mean_price = self.calculate_mean_price_timestamp(trades)          
+                total_vol_time = sum(quantity for _, quantity in trades)            
+                total_product += mean_price * total_vol_time                                
+                total_volume += total_vol_time
+
+        if total_volume == 0 or total_product == 0:
+            return 0  # Avoid division by zero
+
+        vw_sma = total_product / total_volume
+
+        return vw_sma
+    
+
     """
     Return a dictionary with the key being the timestamp and the value of being 
     a list of tuple of the trades with the same timestamp
@@ -319,14 +349,52 @@ class Trader:
         return predicted_price
     
     """
+    Get the best ask, best bid, and the spread
+    """
+    def get_order_book_insight(self, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int]):
+        best_ask, _ = list(sell_order_depth.items())[0]
+        best_bid, _ = list(buy_order_depth.items())[0]
+        spread = best_ask - best_bid
+
+        return best_ask, best_bid, spread
+
+    """
+    Determine buy or sell signal based on VW SMA and current price.
+    """
+    def scalping_strategy(self, current_price, vw_sma, best_bid, best_ask):
+        
+        if current_price > vw_sma:  # Price is above VW SMA, consider selling
+            sell_price = best_ask - self.TICK_SIZE
+            return -1, sell_price
+        
+        elif current_price < vw_sma:  # Price is below VW SMA, consider buying
+            buy_price = best_bid + self.TICK_SIZE
+            return 1, buy_price
+        
+        return None, None
+
+    """
     Uses Scalping strategy to place orders
     """
     def scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []          
 
-        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
-        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
+        # orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        # orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
+        best_ask, best_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
+        vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        current_price = (best_bid + best_ask) / 2
 
+        action, price = self.scalping_strategy(current_price, vw_sma, best_bid, best_ask)
+
+        if action == 1:            
+            order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
+            orders.append(Order(product, price, order_quantity))  
+        elif action == -1:
+            order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
+            orders.append(Order(product, price, -order_quantity))  
+                             
+            
         return orders
     
     """

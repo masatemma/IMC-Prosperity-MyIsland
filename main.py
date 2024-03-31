@@ -1,5 +1,5 @@
 from datamodel import Listing, OrderDepth, Trade, TradingState, Order
-from Trader_Test_7 import Trader
+from Trader_Test_8 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
 
@@ -96,16 +96,16 @@ state = TradingState(
 class PastData: 
 
     def __init__(self):
-        self.market_trades: Dict[str, Dict[int, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}}
-        self.own_trades: Dict[str, Dict[int, List[Tuple[float, int]]]] ={} # {product:{timestamp: [(price, quantity)]}}
+        self.market_data: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
+        self.own_trades: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity     
         self.prev_mid = -1
         
 if __name__ == '__main__':
     trader = Trader()
     past_trades = PastData()	       
-    past_trades.market_trades = {"AMETHYSTS": {700: [(10001, 3), (10005, 4)], 800: [(10001, 3), (10005, 4)]}, "STARFRUIT": {}}
-    past_trades.own_trades = {"AMETHYSTS": {700: [(10001, 3), (10005, 4)], 800: [(10001, 3), (10005, 4)]}, "STARFRUIT": {}}
+    past_trades.market_data = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
+    past_trades.own_trades = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
     state.traderData = jsonpickle.encode(past_trades, keys=True)    
 
     result, conversions, traderData = trader.run(state)
