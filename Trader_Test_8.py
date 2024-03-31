@@ -20,8 +20,8 @@ class PastData:
 class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10   
-    #WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 15} # best A: ?, S: 15
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 6} # 1, 5, 20 
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 18} # best A: ?, S: 18
+    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 10} # 1, 5, 20 
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
@@ -119,10 +119,10 @@ class Trader:
         trades_by_timestamp = sorted(self.convert_to_timestamp_dict(past_trades, product).items())
 
         
-        if len(trades_by_timestamp) < self.WINDOW_SIZE_TIME[product]:
+        if len(trades_by_timestamp) < self.WINDOW_SIZE_VOL[product]:
             return 0
         
-        recent_trades = trades_by_timestamp[-self.WINDOW_SIZE_TIME[product]:]
+        recent_trades = trades_by_timestamp[-self.WINDOW_SIZE_VOL[product]:]
         
         total_volume = 0
         total_product = 0
@@ -219,16 +219,19 @@ class Trader:
         temp_position = self.positions[product]
         sorted_buy_order_depth = sorted(buy_order_depth.items())
 
-        current_sma = self.calculate_sma(past_trades, 0, product)
-        #current_sma = self.calculate_sma_time(past_trades, product)
+        # current_sma = self.calculate_sma(past_trades, 0, product)
+        # current_sma_time = self.calculate_sma_time(past_trades, product)
+        current_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        current_sma_time = self.calculate_volume_weighted_sma(past_trades, product)
+
         print(f"sell order sma: {current_sma}")
 
         # Go through each buy order depth to see if there's a good opportunity to match the order by buying
         for price, quantity in sorted_buy_order_depth:
            
-            if current_sma == 0:
+            if current_sma == 0 or current_sma_time == 0:
                 break                
-            if price >= current_sma + self.TICK_SIZE:  
+            if price >= current_sma + self.TICK_SIZE or price >= current_sma_time + self.TICK_SIZE:  
                 order_quantity: int
                 if temp_position == 0:
                     order_quantity = min(self.POSITION_LIMIT[product], quantity)               
@@ -249,15 +252,18 @@ class Trader:
         temp_position = self.positions[product]
         sorted_buy_order_depth = reversed(sorted(sell_order_depth.items()))
 
-        current_sma = self.calculate_sma(past_trades, 0, product)
-        #current_sma = self.calculate_sma_time(past_trades, product)
+        # current_sma = self.calculate_sma(past_trades, 0, product)
+        # current_sma_time = self.calculate_sma_time(past_trades, product)
+        current_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        current_sma_time = self.calculate_volume_weighted_sma(past_trades, product)
+
         print(f"buy order sma: {current_sma}")
 
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
         for price, quantity in sorted_buy_order_depth:            
-            if current_sma == 0:
+            if current_sma == 0 or current_sma_time == 0:
                 break
-            if price <= current_sma - self.TICK_SIZE:
+            if price <= current_sma - self.TICK_SIZE or price <= current_sma_time - self.TICK_SIZE:
                 order_quantity: int
                 if temp_position == 0:
                     order_quantity = min(self.POSITION_LIMIT[product], quantity)     
@@ -376,23 +382,24 @@ class Trader:
     """
     Uses Scalping strategy to place orders
     """
-    def scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
+    def execute_scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []          
 
-        # orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
-        # orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
-        best_ask, best_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
-        vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
-        current_price = (best_bid + best_ask) / 2
+        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
+        
+        # best_ask, best_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
+        # vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        # current_price = (best_bid + best_ask) / 2
 
-        action, price = self.scalping_strategy(current_price, vw_sma, best_bid, best_ask)
+        # action, price = self.scalping_strategy(current_price, vw_sma, best_bid, best_ask)
 
-        if action == 1:            
-            order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
-            orders.append(Order(product, price, order_quantity))  
-        elif action == -1:
-            order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
-            orders.append(Order(product, price, -order_quantity))  
+        # if action == 1:            
+        #     order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
+        #     orders.append(Order(product, price, order_quantity))  
+        # elif action == -1:
+        #     order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
+        #     orders.append(Order(product, price, -order_quantity))  
                              
             
         return orders
@@ -558,7 +565,7 @@ class Trader:
             # Trade differently for each product
             if product == "STARFRUIT":
                 #orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
-                orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product)
+                orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
                 #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)

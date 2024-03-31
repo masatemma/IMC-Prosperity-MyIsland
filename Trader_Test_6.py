@@ -20,7 +20,7 @@ class PastData:
 class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10   
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 16, 18, 19, 21, 23, 
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 18} # 16, 18, 19, 21, 23, 
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
