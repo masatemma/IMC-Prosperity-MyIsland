@@ -365,43 +365,49 @@ class Trader:
         return best_ask, best_bid, spread
 
     """
+    Market taking
+    """
+    
+    def scalping_strategy_one(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
+        orders: List[Order] = []   
+        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
+        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
+
+        return orders
+    
+    """
+    Market making
     Determine buy or sell signal based on VW SMA and current price.
     """
-    def scalping_strategy(self, current_price, vw_sma, best_bid, best_ask):
+    def scalping_strategy_two(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         
+        orders: List[Order] = []
+        best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)
+        vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        current_price = (best_bid + best_ask) / 2
+
+        price = 0
         if current_price > vw_sma:  # Price is above VW SMA, consider selling
-            sell_price = best_ask - self.TICK_SIZE
-            return -1, sell_price
+            price = best_ask - self.TICK_SIZE
+            order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
+            orders.append(Order(product, price, -order_quantity)) 
         
         elif current_price < vw_sma:  # Price is below VW SMA, consider buying
-            buy_price = best_bid + self.TICK_SIZE
-            return 1, buy_price
-        
-        return None, None
+            price = best_bid + self.TICK_SIZE
+            order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
+            orders.append(Order(product, price, order_quantity)) 
+ 
+        return orders
 
     """
     Uses Scalping strategy to place orders
     """
     def execute_scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []          
-
-        orders += self.compute_sell_orders_sma(buy_order_depth, past_trades, product)
-        orders += self.compute_buy_orders_sma(sell_order_depth, past_trades, product)
-        
-        # best_ask, best_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
-        # vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
-        # current_price = (best_bid + best_ask) / 2
-
-        # action, price = self.scalping_strategy(current_price, vw_sma, best_bid, best_ask)
-
-        # if action == 1:            
-        #     order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
-        #     orders.append(Order(product, price, order_quantity))  
-        # elif action == -1:
-        #     order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
-        #     orders.append(Order(product, price, -order_quantity))  
-                             
-            
+   
+        #orders += self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, product)
+        orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product)
+    
         return orders
     
     """
