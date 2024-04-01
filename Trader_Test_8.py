@@ -19,9 +19,9 @@ class PastData:
 
 class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
-    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10   
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 5, 'STARFRUIT': 18} # best A: ?, S: 18
-    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 10} # 1, 5, 20 
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 13}   # best A: 4, S: 10      3 7 9 11 13
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25} # best A: ?, S: 18   5 10 15 20 25
+    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 9,8, 15
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
@@ -383,16 +383,19 @@ class Trader:
         
         orders: List[Order] = []
         best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)
-        vw_sma = self.calculate_volume_weighted_sma(past_trades, product)
+        #sma = self.calculate_volume_weighted_sma(past_trades, product)
+        #sma = self.calculate_sma(past_trades, 0, product)
+        sma = self.calculate_sma_time(past_trades, product)
+
         current_price = (best_bid + best_ask) / 2
 
         price = 0
-        if current_price > vw_sma:  # Price is above VW SMA, consider selling
+        if current_price > sma:  # Price is above VW SMA, consider selling
             price = best_ask - self.TICK_SIZE
             order_quantity = self.POSITION_LIMIT[product] + self.positions[product]
             orders.append(Order(product, price, -order_quantity)) 
         
-        elif current_price < vw_sma:  # Price is below VW SMA, consider buying
+        elif current_price < sma:  # Price is below VW SMA, consider buying
             price = best_bid + self.TICK_SIZE
             order_quantity = self.POSITION_LIMIT[product] - self.positions[product]
             orders.append(Order(product, price, order_quantity)) 
@@ -405,7 +408,7 @@ class Trader:
     def execute_scalping(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []          
    
-        #orders += self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, product)
+        #orders += self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, product)        
         orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product)
     
         return orders
@@ -574,8 +577,7 @@ class Trader:
                 orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
-                #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)
-                #orders += self.scalping(past_trades, buy_order_depth, sell_order_depth, product)
+                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 print(f"Past Data Size: {len(past_trades.market_data[product])}")
                 
             result[product] = orders
