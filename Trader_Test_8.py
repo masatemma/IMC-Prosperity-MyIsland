@@ -228,12 +228,8 @@ class Trader:
             if current_sma == 0:
                 break                
             if price >= current_sma + tick_size: 
-                order_quantity: int
-                if temp_position == 0:
-                    order_quantity = min(self.POSITION_LIMIT[product], quantity)               
-                else:                    
-                    order_quantity = min((self.POSITION_LIMIT[product] + temp_position), quantity)
-                    
+                order_quantity: int                          
+                order_quantity = min((self.POSITION_LIMIT[product] + temp_position), quantity)                    
                 if order_quantity > 0:
                     temp_position += -order_quantity
                     orders.append(Order(product, price, -order_quantity))
@@ -256,12 +252,8 @@ class Trader:
             if current_sma == 0:
                 break
             if price <= current_sma - tick_size:
-                order_quantity: int
-                if temp_position == 0:
-                    order_quantity = min(self.POSITION_LIMIT[product], quantity)     
-                else:
-                    order_quantity = min((self.POSITION_LIMIT[product] - temp_position), abs(quantity))
-               
+                order_quantity: int                                  
+                order_quantity = min((self.POSITION_LIMIT[product] - temp_position), abs(quantity))               
                 if order_quantity > 0:
                     temp_position += order_quantity
                     orders.append(Order(product, price, order_quantity))                        
@@ -363,9 +355,10 @@ class Trader:
     def scalping_strategy_one(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []   
         
-        orders_sell, temp_pos_sell = self.compute_sell_orders_sma(buy_order_depth, past_trades, product, 1)        
-        orders_buy, temp_pos_buy = self.compute_buy_orders_sma(sell_order_depth, past_trades, product, 1)            
+        orders_sell, _ = self.compute_sell_orders_sma(buy_order_depth, past_trades, product, 1)        
+        orders_buy, _ = self.compute_buy_orders_sma(sell_order_depth, past_trades, product, 1)            
         
+        orders += orders_sell + orders_buy
         return orders
     
     """
@@ -413,10 +406,10 @@ class Trader:
         elif current_price < sma:
             self.positions[product] = temp_pos_buy
             
-        orders += orders_sell
-        orders += orders_buy
+        orders += orders_sell + orders_buy      
         
         arbitrage_amount = 12 #best 12
+        
         orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product, arbitrage_amount)
         
         return orders
@@ -448,22 +441,14 @@ class Trader:
     
         #Place a sell order if the bid price is above the threshold
         for price, quantity in buy_order_depth.items():
-            if price >= self.AME_THRESHOLD_MID:
-                order_quantity: int
-                if self.positions[product] > 0:
-                    order_quantity = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), abs(quantity))
-                else: 
-                    order_quantity = min((self.POSITION_LIMIT[product] + self.positions[product]), abs(quantity))
-
+            if price >= self.AME_THRESHOLD_MID:                              
+                order_quantity = min((self.POSITION_LIMIT[product] + self.positions[product]), abs(quantity))                            
                 orders.append(Order(product, price, -order_quantity))
                 self.positions[product] += -order_quantity  
 
           #Market making: sell at upper bound
         if abs(self.positions[product]) < self.POSITION_LIMIT[product]:
-            if self.positions[product] > 0:            
-                order_amount = min((self.POSITION_LIMIT[product] + abs(self.positions[product])), market_make_amount)                     
-            else: 
-                order_amount = min((self.POSITION_LIMIT[product] + self.positions[product]), market_make_amount)
+            order_amount = min((self.POSITION_LIMIT[product] + self.positions[product]), market_make_amount)                                        
             orders.append(Order(product, self.AME_THRESHOLD_UP, -order_amount))    
             self.positions[product] += -order_amount  
                    
@@ -471,22 +456,13 @@ class Trader:
         # Place a buy order if the ask price is below the threshold
         for price, quantity in sell_order_depth.items():
             if price <= self.AME_THRESHOLD_MID:
-                order_quantity: int
-                if temp_pos < 0:
-                    order_quantity = min((self.POSITION_LIMIT[product] + abs(temp_pos)), abs(quantity))
-                else: 
-                    order_quantity = min((self.POSITION_LIMIT[product] - temp_pos), abs(quantity))
-                
+                order_quantity = min((self.POSITION_LIMIT[product] - temp_pos), abs(quantity))                                            
                 orders.append(Order(product, price, order_quantity))
-                temp_pos += order_quantity
-        
+                temp_pos += order_quantity        
       
          #Market making: buy at lower bound
         if abs(temp_pos) < self.POSITION_LIMIT[product]:
-            if temp_pos < 0:
-                order_amount = min((self.POSITION_LIMIT[product] + abs(temp_pos)), market_make_amount)
-            else:
-                order_amount = min((self.POSITION_LIMIT[product] - temp_pos), market_make_amount)          
+            order_amount = min((self.POSITION_LIMIT[product] - temp_pos), market_make_amount)                    
             orders.append(Order(product, self.AME_THRESHOLD_LOW, order_amount))
             temp_pos += order_amount  
 
@@ -596,7 +572,7 @@ class Trader:
                 orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
-                #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
+                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 print(f"Past Data Size: {len(past_trades.market_data[product])}")
                 
             result[product] = orders
