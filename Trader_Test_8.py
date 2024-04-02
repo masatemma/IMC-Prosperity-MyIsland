@@ -19,9 +19,9 @@ class PastData:
 
 class Trader:    
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
-    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}   # best A: 4, S: 10      3 7 9 11 13
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25} # best A: ?, S: 18   5 10 15 20 25
-    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 9,8, 15
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}  
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25} 
+    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15}
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
@@ -388,7 +388,9 @@ class Trader:
  
         return orders
 
-    # Combining strategy one and two
+    """ 
+    Combined strategy one and two
+    """
     def scalping_combination(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []   
         
@@ -413,6 +415,7 @@ class Trader:
         orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product, arbitrage_amount)
         
         return orders
+    
     """
     Uses Scalping strategy to place orders
     """
