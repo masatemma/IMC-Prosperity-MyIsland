@@ -223,8 +223,7 @@ class Trader:
         print(f"sell order sma: {current_sma}")
         
         # Go through each buy order depth to see if there's a good opportunity to match the order by buying
-        for price, quantity in sorted_buy_order_depth:
-           
+        for price, quantity in sorted_buy_order_depth:           
             if current_sma == 0:
                 break                
             if price >= current_sma + tick_size: 
@@ -376,15 +375,16 @@ class Trader:
         current_price = (best_bid + best_ask) / 2
 
         price = 0        
-        if current_price > sma:  # Price is above SMA, consider selling
-            price = best_ask - self.TICK_SIZE
-            order_quantity = min(self.POSITION_LIMIT[product] + self.positions[product], arbitrage_amount)
-            orders.append(Order(product, price, -order_quantity)) 
-        
-        elif current_price < sma:  # Price is below SMA, consider buying
-            price = best_bid + self.TICK_SIZE
-            order_quantity = min(self.POSITION_LIMIT[product] - self.positions[product], arbitrage_amount)
-            orders.append(Order(product, price, order_quantity)) 
+        if sma != 0:
+            if current_price > sma:  # Price is above SMA, consider selling
+                price = best_ask - self.TICK_SIZE
+                order_quantity = min(self.POSITION_LIMIT[product] + self.positions[product], arbitrage_amount)
+                orders.append(Order(product, price, -order_quantity)) 
+            
+            elif current_price < sma:  # Price is below SMA, consider buying
+                price = best_bid + self.TICK_SIZE
+                order_quantity = min(self.POSITION_LIMIT[product] - self.positions[product], arbitrage_amount)
+                orders.append(Order(product, price, order_quantity)) 
  
         return orders
 
@@ -397,19 +397,21 @@ class Trader:
         tick_size = 2
         orders_sell, temp_pos_sell = self.compute_sell_orders_sma(buy_order_depth, past_trades, product, tick_size)        
         orders_buy, temp_pos_buy = self.compute_buy_orders_sma(sell_order_depth, past_trades, product, tick_size)
-                
+        orders += orders_sell + orders_buy
+        
         # Combination with strategy two
         best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)    
         sma = self.calculate_sma_time(past_trades, product)
-        current_price = (best_bid + best_ask) / 2
         
+        if sma == 0:
+            return orders
+        
+        current_price = (best_bid + best_ask) / 2        
         if current_price > sma:
             self.positions[product] = temp_pos_sell
         elif current_price < sma:
             self.positions[product] = temp_pos_buy
-            
-        orders += orders_sell + orders_buy      
-        
+                                  
         arbitrage_amount = 12 #best 12
         
         orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product, arbitrage_amount)
@@ -575,7 +577,7 @@ class Trader:
                 orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
-                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
+                #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 print(f"Past Data Size: {len(past_trades.market_data[product])}")
                 
             result[product] = orders
