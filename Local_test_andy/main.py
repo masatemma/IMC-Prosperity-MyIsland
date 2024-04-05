@@ -1,5 +1,5 @@
 from datamodel import Listing, OrderDepth, Trade, TradingState, Order
-from Trader import Trader, PastData
+from Trade_10 import Trader, PastData, Logger
 from typing import Dict, List, Tuple
 import jsonpickle
 
@@ -24,7 +24,7 @@ order_depths = {
 }
 
 od = OrderDepth()
-print(f"od.buy_orders: {type(od.buy_orders)}")
+# print(f"od.buy_orders: {type(od.buy_orders)}")
 
 order_depths["AMETHYSTS"].buy_orders=dict({13: 7, 9: 5},)
 order_depths["AMETHYSTS"].sell_orders=dict({10: -3, 11: -5, 12: -8})
@@ -36,18 +36,18 @@ own_trades = {
 	"AMETHYSTS": [
           Trade(
 			symbol="AMETHYSTS",
-			price=9,
-			quantity=3,
-			buyer="SUBMISSION",
-			seller="",
+			price=20,
+			quantity=0,
+			buyer="",
+			seller="SUBMISSION",
 			timestamp=900
 		),
         Trade(
 			symbol="AMETHYSTS",
-			price=20,
-			quantity=1,
-			buyer="SUBMISSION",
+			price=10,
+			quantity=16,
 			seller="",
+			buyer="SUBMISSION",
 			timestamp=900
 		)],
 	"STARFRUIT": []
@@ -77,7 +77,7 @@ market_trades = {
 
 position = {
 	"AMETHYSTS": 0,
-	"STARFRUIT": -5
+	"STARFRUIT": 0
 }
 
 observations = {}
@@ -87,7 +87,12 @@ traderData = ""
 if __name__ == '__main__':
 	trader = Trader()
 	traderData = PastData()
+	traderData.market_data = {'AMETHYSTS': [], 'STARFRUIT': []}    
+	traderData.own_trades = {'AMETHYSTS': [], 'STARFRUIT': []} 
+	traderData.open_positions = {'AMETHYSTS': [], 'STARFRUIT': []}
+	traderData.portfolio = {'AMETHYSTS': (-10,10), 'STARFRUIT': (0,0)} 
 	traderData.prev_mid = -1
+	traderData.mid_prices = {"AMETHYSTS": [1 for i in range(10)], "STARFRUIT": [1 for i in range(10)]}
 	traderData = jsonpickle.encode(traderData)
 
 	state = TradingState(

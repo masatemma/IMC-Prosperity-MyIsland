@@ -9,6 +9,9 @@ class PastData:
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity
         self.prev_mid = -1
 
+        # self.mid_prices
+        # self.volume_weighted_prices: List[]
+
 class Trader:    
     def run(self, state: TradingState):
         print("traderData: " + state.traderData)
