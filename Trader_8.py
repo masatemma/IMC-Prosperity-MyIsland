@@ -575,13 +575,11 @@ class Trader:
 
             
             # Trade differently for each product
-            if product == "STARFRUIT":
-                #orders += self.compute_starfruit_orders(past_trades, buy_order_depth, sell_order_depth, product, state.timestamp)
+            if product == "STARFRUIT":                
                 orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
                 
             elif product == "AMETHYSTS":                          
-                #orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
-                print(f"Past Data Size: {len(past_trades.market_data[product])}")
+                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)                               
                 
             result[product] = orders
         

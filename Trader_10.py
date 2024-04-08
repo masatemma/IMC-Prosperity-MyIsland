@@ -105,7 +105,7 @@ logger = Logger()
 
 class Trader:
     SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1}  
-    WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35} 
+    WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35} #10 15
     PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15}
     PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 2.5}  
@@ -898,8 +898,8 @@ class Trader:
                     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product) 
                     orders += threshold_orders
                 
-            elif product == "AMETHYSTS":                          
-                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
+            # elif product == "AMETHYSTS":                          
+            #     orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 
             result[product] = orders
         
