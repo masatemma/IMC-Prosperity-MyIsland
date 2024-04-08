@@ -255,6 +255,9 @@ class Trader:
         valid_op = []
         position_count = 0
         valid_op_trade: Tuple
+        if product not in state.position:
+            return None   
+             
         if state.position[product] > 0:
             # Iterate the own_trades from the most recent one
             for trade in reversed(past_trades.open_positions[product]):
