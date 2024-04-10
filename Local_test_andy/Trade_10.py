@@ -104,9 +104,8 @@ class PastData:
 logger = Logger()
 
 class Trader:
-    # SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}
-    # SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.55}
-    SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}
+    SIGMA_MULTIPLIER_MAKE = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}
+    SIGMA_MULTIPLIER_TAKE = {'AMETHYSTS': 1, 'STARFRUIT': 0.3}
     WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35}  
 
     PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  # Not used for Starfruit
@@ -355,10 +354,18 @@ class Trader:
 
         # Infer the mid price at the current timestamp, and use the inferred value as a fair price.
         fair_price = np.array([1, self.cur_timestamp]) @ coeffs
-        sell_threshold = math.ceil(fair_price + stdev * self.SIGMA_MULTIPLIER[product])
-        buy_threshold = math.floor(fair_price - stdev * self.SIGMA_MULTIPLIER[product])
+        sell_threshold_take = math.ceil(fair_price + stdev * self.SIGMA_MULTIPLIER_TAKE[product])
+        buy_threshold_take = math.floor(fair_price - stdev * self.SIGMA_MULTIPLIER_TAKE[product])
+        sell_threshold_make = math.ceil(fair_price + stdev * self.SIGMA_MULTIPLIER_MAKE[product])
+        buy_threshold_make = math.floor(fair_price - stdev * self.SIGMA_MULTIPLIER_MAKE[product])
 
-        return {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold, "fair_price": fair_price, "stdev": stdev} 
+        return {
+            'sell_threshold_make': sell_threshold_make, 
+            'buy_threshold_make': buy_threshold_make,
+            'sell_threshold_take': sell_threshold_take, 
+            'buy_threshold_take': buy_threshold_take,
+            "fair_price": fair_price, 
+            "stdev": stdev} 
         
 
     def predict_price_lr(self, past_trades: PastData, n_past_timestamps : int, cur_timestamp: int, product: str):
@@ -702,10 +709,11 @@ class Trader:
         temp_position = self.positions[product]
         sorted_buy_order_depth = sorted(buy_order_depth.items())
         sorted_sell_order_depth = sorted(sell_order_depth.items())
-            
-        logger.print(trade_threshold)
-        sell_threshold = trade_threshold['sell_threshold'] # Sell above this
-        buy_threshold = trade_threshold['buy_threshold'] # Buy below this
+
+        sell_threshold_take = trade_threshold['sell_threshold_take'] # Sell (take) above this
+        buy_threshold_take = trade_threshold['buy_threshold_take'] # Buy (take) below this    
+        sell_threshold_make = trade_threshold['sell_threshold_make'] # Sell (make) above this
+        buy_threshold_make = trade_threshold['buy_threshold_make'] # Buy (take) below this
 
         # Variables below are for portfolio trading
         margin = self.PORTFOLIO_TRADE_MARGIN[product]
@@ -719,7 +727,7 @@ class Trader:
         """Sell"""
         sell_temp_position = temp_position
         for price, quantity in sorted_buy_order_depth:            
-            if price >= sell_threshold: 
+            if price >= sell_threshold_take: 
                 order_quantity: int                          
                 order_quantity = min((self.POSITION_LIMIT[product] + sell_temp_position), quantity)                    
                 if order_quantity > 0:
@@ -740,7 +748,7 @@ class Trader:
         """Buy"""
         buy_temp_position = temp_position
         for price, quantity in sorted_sell_order_depth:            
-            if price <= buy_threshold:
+            if price <= buy_threshold_take:
                 order_quantity: int                                  
                 order_quantity = min((self.POSITION_LIMIT[product] - buy_temp_position), abs(quantity))               
                 if order_quantity > 0:
@@ -775,13 +783,13 @@ class Trader:
         """
         The market making code below works.
         """
-        make_sell_quantity = self.POSITION_LIMIT[product] + sell_temp_position
-        if make_sell_quantity != 0:
-            orders.append(Order(product, sell_threshold, -make_sell_quantity))
+        # make_sell_quantity = self.POSITION_LIMIT[product] + sell_temp_position
+        # if make_sell_quantity != 0:
+        #     orders.append(Order(product, sell_threshold_make, -make_sell_quantity))
 
-        make_buy_quantity = self.POSITION_LIMIT[product] - buy_temp_position
-        if make_buy_quantity != 0:
-            orders.append(Order(product, buy_threshold, make_buy_quantity))
+        # make_buy_quantity = self.POSITION_LIMIT[product] - buy_temp_position
+        # if make_buy_quantity != 0:
+        #     orders.append(Order(product, buy_threshold_make, make_buy_quantity))
 
         return orders, temp_position
 
