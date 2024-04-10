@@ -783,13 +783,13 @@ class Trader:
         """
         The market making code below works.
         """
-        # make_sell_quantity = self.POSITION_LIMIT[product] + sell_temp_position
-        # if make_sell_quantity != 0:
-        #     orders.append(Order(product, sell_threshold_make, -make_sell_quantity))
+        make_sell_quantity = self.POSITION_LIMIT[product] + sell_temp_position
+        if make_sell_quantity != 0:
+            orders.append(Order(product, sell_threshold_make, -make_sell_quantity))
 
-        # make_buy_quantity = self.POSITION_LIMIT[product] - buy_temp_position
-        # if make_buy_quantity != 0:
-        #     orders.append(Order(product, buy_threshold_make, make_buy_quantity))
+        make_buy_quantity = self.POSITION_LIMIT[product] - buy_temp_position
+        if make_buy_quantity != 0:
+            orders.append(Order(product, buy_threshold_make, make_buy_quantity))
 
         return orders, temp_position
 
