@@ -104,11 +104,16 @@ class PastData:
 logger = Logger()
 
 class Trader:
-    SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1}  
-    WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35} 
-    PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  
+    # SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}
+    # SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.55}
+    SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}
+    WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35}  
+
+    PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  # Not used for Starfruit
+    # PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 10, 'STARFRUIT': 2}  # Not used for Starfruit
+    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 1}
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15}
-    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 2.5}  
+      
     PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT'] 
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}  
@@ -706,7 +711,6 @@ class Trader:
         margin = self.PORTFOLIO_TRADE_MARGIN[product]
         product_position, product_avg_value = past_trades.portfolio[product]
         portfolio_trade_threshold = self.PORTFOLIO_TRADE_THRESHOLD[product]
-        portfolio_trade_amount = self.PORTFOLIO_TRADE_AMOUNT[product]
         assert product_position == temp_position
         
         # Go through each buy order depth to see if there's a good opportunity to match orders
@@ -888,7 +892,8 @@ class Trader:
                 """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
                 if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
                     trade_threshold = self.compute_trade_threshold(past_trades, product)
-                    threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product) 
+                    portfolio_trade = True
+                    threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=portfolio_trade) 
                     orders += threshold_orders
                 
             # elif product == "AMETHYSTS":                          
@@ -896,7 +901,7 @@ class Trader:
                 
             result[product] = orders
         
-        target_products = ["AMETHYSTS", "STARFRUIT"]
+        target_products = ["AMETHYSTS"]
         self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData

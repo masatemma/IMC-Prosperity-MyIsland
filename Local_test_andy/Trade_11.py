@@ -104,11 +104,12 @@ class PastData:
 logger = Logger()
 
 class Trader:
+    TRADE_LIMIT_LR = {'AMETHYSTS': 10, 'STARFRUIT': 10} 
     SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1}  
     WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35} 
     PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15}
-    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 0}  
+    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 2.5}  
     PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT'] 
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}  
@@ -692,7 +693,7 @@ class Trader:
         # Order(product, price, -order_quantity)
         # Order(product, self.AME_THRESHOLD_UP, -order_amount)
         
-    def make_threshold_trade(self, trade_threshold, past_trades, buy_order_depth, sell_order_depth, product):
+    def make_threshold_trade(self, trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=False):
         orders: List[Order] = []  
         temp_position = self.positions[product]
         sorted_buy_order_depth = sorted(buy_order_depth.items())
@@ -701,30 +702,51 @@ class Trader:
         logger.print(trade_threshold)
         sell_threshold = trade_threshold['sell_threshold'] # Sell above this
         buy_threshold = trade_threshold['buy_threshold'] # Buy below this
-        best_ask, best_bid,  _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)
+        trade_limit = self.TRADE_LIMIT_LR[product]
+
+        # Variables below are for portfolio trading
+        product_position, product_avg_value = past_trades.portfolio[product]
+        assert product_position == temp_position
         
         # Go through each buy order depth to see if there's a good opportunity to match orders
 
         # Market taking
+        """Sell"""
         sell_temp_position = temp_position
+        
+        quantity_sum = 0
         for price, quantity in sorted_buy_order_depth:            
             if price >= sell_threshold: 
-                order_quantity: int                          
+                order_quantity: int    
+                # Biggest number we should trade considering position limits                      
                 order_quantity = min((self.POSITION_LIMIT[product] + sell_temp_position), quantity)                    
-                if order_quantity > 0:
+                if order_quantity > 0 and quantity_sum < trade_limit:
+                    # The number we should trade in light of trade limit
+                    order_quantity = min(trade_limit - quantity_sum, order_quantity)
+                    quantity_sum += order_quantity
                     sell_temp_position += -order_quantity
-                    orders.append(Order(product, price, -order_quantity))
+                    orders.append(Order(product, price, -order_quantity))                 
 
+        
+        """Buy"""
+        quantity_sum = 0
         buy_temp_position = temp_position
         for price, quantity in sorted_sell_order_depth:            
             if price <= buy_threshold:
                 order_quantity: int                                  
                 order_quantity = min((self.POSITION_LIMIT[product] - buy_temp_position), abs(quantity))               
-                if order_quantity > 0:
+                if order_quantity > 0 and quantity_sum < trade_limit:
+                    order_quantity = min(trade_limit - quantity_sum, order_quantity)
+                    quantity_sum += order_quantity
                     buy_temp_position += order_quantity
                     orders.append(Order(product, price, order_quantity))
         
         # Market making
+
+        """
+        The block below is tested for STARFRUIT. 
+        The resulting values are too extreme to be taken by bots
+        """
         # mid_price_current = past_trades.mid_prices[product][-1]
         # make_sell_quantity = self.POSITION_LIMIT[product] + temp_position
         # if make_sell_quantity != 0 and mid_price_current >= sell_threshold:
@@ -734,12 +756,15 @@ class Trader:
         # if make_buy_quantity != 0 and mid_price_current <= buy_threshold:
         #     orders.append(Order(product, best_bid+1, make_buy_quantity))
 
-        make_sell_quantity = self.POSITION_LIMIT[product] + sell_temp_position
-        if make_sell_quantity != 0 and sell_threshold < best_ask:
+        """
+        The market making code below works.
+        """
+        make_sell_quantity = min(self.POSITION_LIMIT[product] + sell_temp_position, trade_limit)
+        if make_sell_quantity != 0:
             orders.append(Order(product, sell_threshold, -make_sell_quantity))
 
-        make_buy_quantity = self.POSITION_LIMIT[product] - buy_temp_position
-        if make_buy_quantity != 0 and buy_threshold > best_bid:
+        make_buy_quantity = min(self.POSITION_LIMIT[product] - buy_temp_position, trade_limit)
+        if make_buy_quantity != 0:
             orders.append(Order(product, buy_threshold, make_buy_quantity))
 
         return orders, temp_position
