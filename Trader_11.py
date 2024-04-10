@@ -104,17 +104,17 @@ class PastData:
 logger = Logger()
 
 class Trader:
-    SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1.5}  
+    SIGMA_MULTIPLIER = {'AMETHYSTS': 1, 'STARFRUIT': 1}  
     WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35} #10 15
     PORTFOLIO_TRADE_AMOUNT = {'AMETHYSTS': 2, 'STARFRUIT': 2}  
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15}
-    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 1}  
+    PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 2.5}  
     PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT'] 
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20}  
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10}  
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25} 
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 10} 
     WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15}
-    WINDOW_SIZE_MIDPRICE = {'AMETHYSTS': 5, 'STARFRUIT': 40} # 23 27 33 35 37 40
+    WINDOW_SIZE_MIDPRICE = {'AMETHYSTS': 5, 'STARFRUIT': 15} # 23 27 33 35 37 40
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 10000
     TICK_SIZE = 1
@@ -256,7 +256,7 @@ class Trader:
         position_count = 0
         valid_op_trade: Tuple
         if product not in state.position:
-            return None   
+            return None  
              
         if state.position[product] > 0:
             # Iterate the own_trades from the most recent one
@@ -299,12 +299,12 @@ class Trader:
     def compute_sell_orders_sma(self, buy_order_depth: Dict[int, int], past_trades: PastData, product: str, tick_size: int):
         orders: List[Order] = []  
         temp_position = self.positions[product]
-        sorted_buy_order_depth = sorted(buy_order_depth.items())
+        sorted_buy_order_depth = list(buy_order_depth.items())
 
         current_sma = self.calculate_sma(past_trades, 0, product)     
         logger.print(f"sell order sma: {current_sma}")
         
-        # Go through each buy order depth to see if there's a good opportunity to match the order by buying
+        # Go through each buy order depth to see if there's a good opportunity to match the order by selling
         for price, quantity in sorted_buy_order_depth:
            
             if current_sma == 0:
@@ -323,13 +323,13 @@ class Trader:
     def compute_buy_orders_sma(self, sell_order_depth: Dict[int, int], past_trades: PastData, product: str, tick_size: int):
         orders: List[Order] = []  
         temp_position = self.positions[product]
-        sorted_buy_order_depth = reversed(sorted(sell_order_depth.items()))
+        sorted_sell_order_depth = list(sell_order_depth.items())
 
         current_sma = self.calculate_sma(past_trades, 0, product)                
         logger.print(f"buy order sma: {current_sma}")
     
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
-        for price, quantity in sorted_buy_order_depth:            
+        for price, quantity in sorted_sell_order_depth:            
             if current_sma == 0:
                 break
             if price <= current_sma - tick_size:
@@ -409,10 +409,13 @@ class Trader:
     """
     def get_order_book_insight(self, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int]):
         best_ask, _ = list(sell_order_depth.items())[0]
+        worst_ask = list(sell_order_depth.items())[-1]
         best_bid, _ = list(buy_order_depth.items())[0]
+        worst_bid, _ = list(buy_order_depth.items())[-1]
+        
         spread = best_ask - best_bid
 
-        return best_ask, best_bid, spread
+        return best_ask, best_bid, worst_ask, worst_bid, spread
 
     """
     Market taking
@@ -451,6 +454,61 @@ class Trader:
  
         return orders
 
+    def scalping_strategy_three(self, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str, arbitrage_amount: int):
+        orders: List[Order] = []
+        best_ask, best_bid, worst_ask, worst_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
+        sma = self.calculate_midprice_sma(past_trades, product)
+
+        mid_price = (best_bid + best_ask) / 2
+
+        if self.positions[product] == 0 and sma != 0:   
+            price = 0
+            tick_size = 1
+            temp_position = self.positions[product]
+            if mid_price < sma + tick_size:  # Price is above SMA, consider selling
+                for price, quantity in list(buy_order_depth.items()):                        
+                    order_quantity: int                          
+                    order_quantity = min((self.POSITION_LIMIT[product] + temp_position), quantity)                    
+                    if order_quantity > 0:
+                        temp_position += -order_quantity
+                        orders.append(Order(product, price, -order_quantity))
+            
+            elif mid_price > sma - tick_size:  # Price is below SMA, consider buying
+                for price, quantity in list(sell_order_depth.items()):            
+                    order_quantity: int                                  
+                    order_quantity = min((self.POSITION_LIMIT[product] - temp_position), abs(quantity))               
+                    if order_quantity > 0:
+                        temp_position += order_quantity
+                        orders.append(Order(product, price, order_quantity)) 
+
+        elif self.positions[product] < 0 and len(past_trades.open_positions[product]) > 0:
+            # Buying back can try if price - 1 >= best_bid
+            sorted_open_pos = reversed(sorted(past_trades.open_positions[product], key=lambda x: x[0])) #highest price first 
+            profit = 5
+            stop_loss = 10
+            for price, quantity in sorted_open_pos:
+                if price - profit >= best_ask:
+                    order_quantity = -quantity            
+                    orders.append(Order(product, best_ask, order_quantity))
+                elif price + stop_loss <= best_ask:
+                    order_quantity = -quantity          
+                    orders.append(Order(product, best_ask, order_quantity))
+                
+        elif self.positions[product] > 0 and len(past_trades.open_positions[product]) > 0:
+            #Selling to close long position
+            sorted_open_pos = sorted(past_trades.open_positions[product], key=lambda x: x[0]) #lowest price first
+            profit = 10
+            stop_loss = 10
+            for price, quantity in sorted_open_pos:
+                if price + profit <= best_bid:  
+                    order_quantity = -quantity                    
+                    orders.append(Order(product, best_bid, order_quantity))
+                elif price - stop_loss >= best_bid: 
+                    order_quantity = -quantity                                       
+                    orders.append(Order(product, best_bid, order_quantity))
+
+        return orders
+
     """ 
     Combined strategy one and two
     """
@@ -487,7 +545,8 @@ class Trader:
 
         #orders += self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, product)        
         #orders += self.scalping_strategy_two(past_trades, buy_order_depth, sell_order_depth, product, 12)
-        orders += self.scalping_combination(past_trades, buy_order_depth, sell_order_depth, product)
+        orders += self.scalping_strategy_three(past_trades, buy_order_depth, sell_order_depth, product, 10)
+        #orders += self.scalping_combination(past_trades, buy_order_depth, sell_order_depth, product)
     
         return orders
     
@@ -835,9 +894,9 @@ class Trader:
             # Update trader data
             if product in state.own_trades:
                 # Update portfolio
-                logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
-                past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
-                logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
+                # logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
+                # past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
+                # logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
 
                 own_trades += state.own_trades[product]  
                 past_trades.own_trades[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in own_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                                  
@@ -852,7 +911,7 @@ class Trader:
 
                 # Get rid of past own_trades that have been closed           
                 self.compute_open_pos(state, past_trades, product)
-                
+                logger.print(f"open positions: {past_trades.open_positions[product]}")
             # Update trader data
             # Store the past trades into the past data object
             if product in state.market_trades:
@@ -890,21 +949,21 @@ class Trader:
             """
             # Trade differently for each product
             if product == "STARFRUIT":
-                #orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
+                orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
 
                 """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-                if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
-                    trade_threshold = self.compute_trade_threshold(past_trades, product)
-                    threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product) 
-                    orders += threshold_orders
+                # if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
+                #     trade_threshold = self.compute_trade_threshold(past_trades, product)
+                #     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product) 
+                #     orders += threshold_orders
                 
-            elif product == "AMETHYSTS":                          
-                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
+            # elif product == "AMETHYSTS":                          
+            #     orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 
             result[product] = orders
         
         target_products = ["AMETHYSTS", "STARFRUIT"]
-        self.trade_portfolio(result, past_trades.portfolio, target_products)
+        #self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
