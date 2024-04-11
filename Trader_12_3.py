@@ -521,31 +521,56 @@ class Trader:
         best_ask, best_bid, spread = self.get_order_book_insight(buy_order_depth, sell_order_depth)
         mid_price = (best_ask + best_bid) // 2
      
-        if mid_price >= MIDPRICE_THRESHOLD_UP:
-            # Sell high
-            order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), AME_ORDER_AMOUNT['Mid'])   
-            orders.append(Order(product, self.AME_THRESHOLD_UP, -order_quantity))
-            temp_pos_sell -= order_quantity
-        elif mid_price <= MIDPRICE_THRESHOLD_LOW:
-            # Buy low
-            order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), AME_ORDER_AMOUNT['Mid'])  
-            orders.append(Order(product, self.AME_THRESHOLD_LOW, order_quantity))
-            temp_pos_buy += order_quantity
+        # if past_trades.prev_mid >= MIDPRICE_THRESHOLD_UP:
+        #     # Sell high
+        #     order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), AME_ORDER_AMOUNT['Mid'])   
+        #     orders.append(Order(product, self.AME_THRESHOLD_UP, -order_quantity))
+        #     temp_pos_sell -= order_quantity
+        # elif past_trades.prev_mid <= MIDPRICE_THRESHOLD_LOW:
+        #     # Buy low
+        #     order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), AME_ORDER_AMOUNT['Mid'])  
+        #     orders.append(Order(product, self.AME_THRESHOLD_LOW, order_quantity))
+        #     temp_pos_buy += order_quantity
        
-        #Sell
-        for price, quantity in sell_market_make_price.items():            
-            order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), quantity)     
-            if order_quantity != 0:                       
-                orders.append(Order(product, price, -order_quantity))
-                temp_pos_sell -= order_quantity
+        # #Sell
+        # for price, quantity in sell_market_make_price.items():            
+        #     order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), quantity)     
+        #     if order_quantity != 0:                       
+        #         orders.append(Order(product, price, -order_quantity))
+        #         temp_pos_sell -= order_quantity
        
-        #Buy 
-        for price, quantity in buy_market_make_price.items():
-            order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), quantity)  
-            if order_quantity != 0:                            
-                orders.append(Order(product, price, order_quantity))
-                temp_pos_buy += order_quantity
+        # #Buy 
+        # for price, quantity in buy_market_make_price.items():
+        #     order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), quantity)  
+        #     if order_quantity != 0:                            
+        #         orders.append(Order(product, price, order_quantity))
+        #         temp_pos_buy += order_quantity
 
+        
+        market_make_amount = 11 # 11
+        #Place a sell order if the bid price is above the threshold
+        for price, quantity in buy_order_depth.items():
+            if price >= self.AME_THRESHOLD_MID:                              
+                order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), abs(quantity))                     
+                orders.append(Order(product, price, -order_quantity))
+                temp_pos_sell += -order_quantity                           
+
+        #Market making: sell at upper bound        
+        order_amount = min((self.POSITION_LIMIT[product] + temp_pos_sell), market_make_amount)                                        
+        orders.append(Order(product, self.AME_THRESHOLD_UP - 1, -order_amount))    
+        temp_pos_sell += -order_amount 
+
+        # Place a buy order if the ask price is below the threshold
+        for price, quantity in sell_order_depth.items():
+            if price <= self.AME_THRESHOLD_MID:
+                order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), abs(quantity))                                         
+                orders.append(Order(product, price, order_quantity))
+                temp_pos_buy += order_quantity                   
+
+        #Market making: buy at lower bound          
+        order_amount = min((self.POSITION_LIMIT[product] - temp_pos_buy), market_make_amount)                    
+        orders.append(Order(product, self.AME_THRESHOLD_LOW + 1, order_amount))
+        temp_pos_buy += order_amount  
 
         return orders
 
@@ -849,9 +874,9 @@ class Trader:
             # Update trader data
             if product in state.own_trades:
                 # Update portfolio
-                logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
-                past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
-                logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
+                # logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
+                # past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
+                # logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
 
                 own_trades += state.own_trades[product]  
                 past_trades.own_trades[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in own_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                                  
@@ -903,23 +928,23 @@ class Trader:
             Main trading logics
             """
             # Trade differently for each product
-            if product == "STARFRUIT":
+            # if product == "STARFRUIT":
                 # orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
 
-                """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-                if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
-                    trade_threshold = self.compute_trade_threshold(past_trades, product)
-                    portfolio_trade = True
-                    threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=portfolio_trade) 
-                    orders += threshold_orders
+                # """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
+                # if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
+                #     trade_threshold = self.compute_trade_threshold(past_trades, product)
+                #     portfolio_trade = True
+                #     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=portfolio_trade) 
+                #     orders += threshold_orders
                 
-            elif product == "AMETHYSTS":                          
+            if product == "AMETHYSTS":                          
                 orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)               
                 
             result[product] = orders
         
         target_products = ["AMETHYSTS"]
-        self.trade_portfolio(result, past_trades.portfolio, target_products)
+        #self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 

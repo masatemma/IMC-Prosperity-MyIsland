@@ -507,35 +507,33 @@ class Trader:
             return 0
 
 
-        temp_pos = self.positions[product]
-        market_make_amount = 9 #9 best
-    
+        temp_pos_sell = self.positions[product]
+        temp_pos_buy = self.positions[product]
+
+        market_make_amount = 11 # 11
         #Place a sell order if the bid price is above the threshold
         for price, quantity in buy_order_depth.items():
             if price >= self.AME_THRESHOLD_MID:                              
-                order_quantity = min((self.POSITION_LIMIT[product] + self.positions[product]), abs(quantity))                            
+                order_quantity = min((self.POSITION_LIMIT[product] + temp_pos_sell), abs(quantity))                     
                 orders.append(Order(product, price, -order_quantity))
-                self.positions[product] += -order_quantity  
+                temp_pos_sell += -order_quantity                           
 
-          #Market making: sell at upper bound
-        if abs(self.positions[product]) < self.POSITION_LIMIT[product]:
-            order_amount = min((self.POSITION_LIMIT[product] + self.positions[product]), market_make_amount)                                        
-            orders.append(Order(product, self.AME_THRESHOLD_UP, -order_amount))    
-            self.positions[product] += -order_amount  
-                   
-       
+        #Market making: sell at upper bound        
+        order_amount = min((self.POSITION_LIMIT[product] + temp_pos_sell), market_make_amount)                                        
+        orders.append(Order(product, self.AME_THRESHOLD_UP - 1, -order_amount))    
+        temp_pos_sell += -order_amount 
+
         # Place a buy order if the ask price is below the threshold
         for price, quantity in sell_order_depth.items():
             if price <= self.AME_THRESHOLD_MID:
-                order_quantity = min((self.POSITION_LIMIT[product] - temp_pos), abs(quantity))                                            
+                order_quantity = min((self.POSITION_LIMIT[product] - temp_pos_buy), abs(quantity))                                         
                 orders.append(Order(product, price, order_quantity))
-                temp_pos += order_quantity        
-      
-         #Market making: buy at lower bound
-        if abs(temp_pos) < self.POSITION_LIMIT[product]:
-            order_amount = min((self.POSITION_LIMIT[product] - temp_pos), market_make_amount)                    
-            orders.append(Order(product, self.AME_THRESHOLD_LOW, order_amount))
-            temp_pos += order_amount  
+                temp_pos_buy += order_quantity                   
+
+        #Market making: buy at lower bound          
+        order_amount = min((self.POSITION_LIMIT[product] - temp_pos_buy), market_make_amount)                    
+        orders.append(Order(product, self.AME_THRESHOLD_LOW + 1, order_amount))
+        temp_pos_buy += order_amount  
 
 
         return orders
