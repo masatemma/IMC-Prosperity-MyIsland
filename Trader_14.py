@@ -510,7 +510,7 @@ class Trader:
         temp_pos_sell = self.positions[product]
         temp_pos_buy = self.positions[product]
 
-        market_make_amount = 11 # 11
+        market_make_amount = 40 # 11
         #Place a sell order if the bid price is above the threshold
         for price, quantity in buy_order_depth.items():
             if price >= self.AME_THRESHOLD_MID:                              
@@ -520,7 +520,7 @@ class Trader:
 
         #Market making: sell at upper bound        
         order_amount = min((self.POSITION_LIMIT[product] + temp_pos_sell), market_make_amount)                                        
-        orders.append(Order(product, self.AME_THRESHOLD_UP - 1, -order_amount))    
+        orders.append(Order(product, self.AME_THRESHOLD_UP, -order_amount))    
         temp_pos_sell += -order_amount 
 
         # Place a buy order if the ask price is below the threshold
@@ -532,7 +532,7 @@ class Trader:
 
         #Market making: buy at lower bound          
         order_amount = min((self.POSITION_LIMIT[product] - temp_pos_buy), market_make_amount)                    
-        orders.append(Order(product, self.AME_THRESHOLD_LOW + 1, order_amount))
+        orders.append(Order(product, self.AME_THRESHOLD_LOW, order_amount))
         temp_pos_buy += order_amount  
 
 
