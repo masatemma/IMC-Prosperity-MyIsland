@@ -795,10 +795,13 @@ class Trader:
 
     def simple_trade(self, con_ob: ConversionObservation, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
         orders: List[Order] = []   
-        orders.append(Order(product, int(con_ob.bidPrice), -1))
+        #orders.append(Order(product, int(con_ob.bidPrice), -1))
         #orders.append(Order(product, int(con_ob.askPrice), 1))
-        if self.positions[product] == 100:
-            conversions = 50
+
+        for price, quanity in buy_order_depth.items():
+            orders.append(Order(product, price, -1))
+
+ 
         return orders
     
     def conversion_request(self, product: str):
@@ -909,9 +912,9 @@ class Trader:
             conversions = 0
             # Trade differently for each product
             if product == "ORCHIDS":
-                #orders += self.simple_trade(state.observations.conversionObservations[product], past_trades, buy_order_depth, sell_order_depth, product)
+                orders += self.simple_trade(state.observations.conversionObservations[product], past_trades, buy_order_depth, sell_order_depth, product)
                 conversions = self.conversion_request(product)
-                orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
+                #orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
 
             # elif product == "STARFRUIT":
             #     # orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
