@@ -1,7 +1,8 @@
-from datamodel import Listing, OrderDepth, Trade, TradingState, Order
-from Trader_Test_8 import Trader
+from datamodel import *
+from Trader_14 import Trader
 from typing import Dict, List, Tuple
 import jsonpickle
+import pandas as pd
 
 timestamp = 1000
 
@@ -16,6 +17,11 @@ listings = {
 		product="STARFRUIT", 
 		denomination= "SEASHELLS"
 	),
+    "STARFRUIT": Listing(
+		symbol="ORCHIDS", 
+		product="ORCHIDS", 
+		denomination= "SEASHELLS"
+	)
 }
 
 order_depths = {
@@ -48,7 +54,8 @@ own_trades = {
 			seller="",
 			timestamp=900
 		)],
-	"STARFRUIT": []
+	"STARFRUIT": [],
+    "ORCHIDS": []
 }
 
 market_trades = {
@@ -70,15 +77,18 @@ market_trades = {
 			timestamp=900
 		)
 	],
-	"STARFRUIT": []
+	"STARFRUIT": [],
+    "ORCHIDS": []
 }
 
 position = {
 	"AMETHYSTS": 0,
-	"STARFRUIT": -5
+	"STARFRUIT": -5,
+    "ORCHIDS": 0
 }
 
-observations = {}
+
+observations = Observation()
 traderData = ""
 
 
@@ -94,21 +104,42 @@ state = TradingState(
 )
 
 class PastData: 
-
     def __init__(self):
         self.market_data: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
         self.own_trades: Dict[str, List[Tuple[float, int, int]]] = {} #price, quantity, timestamp
         self.open_positions: Dict[str, List[Tuple[float, int]]] = {} #price, quantity     
+        self.portfolio: Dict[str, Tuple[int, int]] = {"AMETHYSTS":(0,0), "STARFRUIT":(0,0),"ORCHIDS": (0,0)}
         self.prev_mid = -1
+        self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
+        self.rates_of_change: List[float] = []
+        self.prev_humidity = -1   
         
 if __name__ == '__main__':
-    trader = Trader()
-    past_trades = PastData()	       
-    past_trades.market_data = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
-    past_trades.own_trades = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
-    state.traderData = jsonpickle.encode(past_trades, keys=True)    
+	trader = Trader()
+	df = pd.read_csv('../round2/past_data/prices_round_2_day_-1.csv', delimiter=';')
 
-    result, conversions, traderData = trader.run(state)
-    print(result)    
+	for i, row in df.iterrows():
+		mid_price = row["ORCHIDS"] 	
+        	
+		con_ob = ConversionObservation(
+			bidPrice=mid_price - 1, 
+			askPrice=mid_price + 1, 
+			transportFees=row['TRANSPORT_FEES'], 
+			exportTariff=row['EXPORT_TARIFF'], 
+			importTariff=row['IMPORT_TARIFF'], 
+			sunlight=row['SUNLIGHT'], 
+			humidity=row['HUMIDITY']
+		)
+		conversionObservations: Dict[Product, ConversionObservation] = {"ORCHIDS": con_ob}
+		state.observations = Observation({}, conversionObservations)	
+		
+		past_trades = PastData()	       
+		past_trades.market_data = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
+		past_trades.own_trades = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}    
+		state.traderData = jsonpickle.encode(past_trades, keys=True)    
+
+		result, conversions, traderData = trader.run(state)
+		if "ORCHIDS" in result and len(result["ORCHIDS"]) > 0:
+			print(result)    
     
     

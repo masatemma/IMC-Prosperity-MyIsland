@@ -100,6 +100,8 @@ class PastData:
         self.portfolio: Dict[str, Tuple[int, int]] = {"AMETHYSTS":(0,0), "STARFRUIT":(0,0),"ORCHIDS": (0,0)}
         self.prev_mid = -1
         self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
+        self.rates_of_change: List[float] = []
+        self.prev_humidity = -1        
 
 logger = Logger()
 
@@ -127,6 +129,8 @@ class Trader:
     AME_THRESHOLD_MID = 10000
     AME_THRESHOLD_UP = 10004
     AME_THRESHOLD_LOW = 9996
+    HUMIDITY_OPT_LOW = 60
+    HUMIDITY_OPT_HIGH = 80 
 
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0}  
     cur_timestamp = 0
@@ -804,9 +808,65 @@ class Trader:
  
         return orders
     
-    def conversion_request(self, product: str):
-        if abs(self.positions[product]) == 100:
-            return 50
+    """
+    Update the rates of change list whenever there's new data
+    """
+    def update_rates_of_change(self,past_trades: PastData, con_ob: ConversionObservation):     
+        cur_humidity = con_ob.humidity   
+        if past_trades.prev_humidity == -1:
+            past_trades.prev_humidity = cur_humidity
+            return None
+        
+        if past_trades.prev_humidity > 0:
+            rate_of_change = cur_humidity - past_trades.prev_humidity
+            past_trades.rates_of_change.append(rate_of_change)
+
+            if len(past_trades.rates_of_change) > 10:
+                past_trades.rates_of_change.pop(0)
+        
+
+    """
+    Place conversion request based on current position and humidity peak
+    """
+    def conversion_request(self, con_ob: ConversionObservation, past_trades: PastData, product: str):
+        conversions = 0
+        cur_humidity = con_ob.humidity
+        if len(past_trades.rates_of_change) < 3:
+            return conversions
+        # Close the short position by conversion request
+        if self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW <= cur_humidity and cur_humidity <= self.HUMIDITY_OPT_HIGH) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and 
+                              past_trades.rates_of_change[-1] > 0):
+            conversions = self.positions[product]
+        return conversions        
+        
+    """
+    Place orders based on humidity
+    """
+
+    def compute_orchids_orders(self, con_ob: ConversionObservation, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):        
+        orders: List[Order] = []
+        temp_pos = self.positions[product]
+        cur_humidity = con_ob.humidity        
+
+        if len(past_trades.rates_of_change) < 3:
+            return orders
+        
+        
+        # Sell if detect upward peak in humidity
+        if temp_pos == 0 and (cur_humidity >= self.HUMIDITY_OPT_HIGH + 5) and (past_trades.rates_of_change[-3] > 0 and past_trades.rates_of_change[-2] <= 0 and 
+                              past_trades.rates_of_change[-1] < 0):
+            #Market take from the orderbook 
+            for price, quantity in buy_order_depth:
+                order_quantity = min(self.POSITION_LIMIT[product] + temp_pos, quantity)
+                orders.append(Order(product, price, -order_quantity))
+                temp_pos -= order_quantity
+            if abs(temp_pos) < self.POSITION_LIMIT[product]:
+                order_quantity = self.POSITION_LIMIT[product] + temp_pos
+                orders.append(Order(product, price, -order_quantity))      
+        
+        return orders
+            
+
 
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
@@ -825,6 +885,7 @@ class Trader:
             past_trades.own_trades = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []} 
             past_trades.open_positions = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []} 
             past_trades.portfolio = {'AMETHYSTS': (0,0), 'STARFRUIT': (0,0), 'ORCHIDS': (0,0)} # (position, avg_price)
+            past_trades.rates_of_change = []
         else:
             past_trades = jsonpickle.decode(state.traderData)                     
 
@@ -911,9 +972,12 @@ class Trader:
 
             conversions = 0
             # Trade differently for each product
-            if product == "ORCHIDS":
-                orders += self.simple_trade(state.observations.conversionObservations[product], past_trades, buy_order_depth, sell_order_depth, product)
-                conversions = self.conversion_request(product)
+            if product == "ORCHIDS":            
+                con_ob = state.observations.conversionObservations[product]
+                self.update_rates_of_change(past_trades, con_ob)
+                orders += self.compute_orchids_orders(con_ob, past_trades, buy_order_depth, sell_order_depth, product)
+                conversions = self.conversion_request(con_ob, past_trades, product)
+
                 #orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
 
             # elif product == "STARFRUIT":
