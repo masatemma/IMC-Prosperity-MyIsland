@@ -101,7 +101,8 @@ class PastData:
         self.prev_mid = -1
         self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
         self.rates_of_change: List[float] = []
-        self.prev_humidity = -1        
+        self.prev_humidity = -1     
+        self.sell_orchids_at = -1   
 
 logger = Logger()
 
@@ -121,7 +122,7 @@ class Trader:
     WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25, 'ORCHIDS': 20} 
     WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15, 'ORCHIDS': 20}
     VWAP_WINDOW = 20
-    PAST_DATA_MAX = 10000
+    PAST_DATA_MAX = 5000    
     TICK_SIZE = 1
     PD_PRICE_INDEX = 0
     PD_QUANTITY_INDEX = 1
@@ -814,13 +815,14 @@ class Trader:
     def update_rates_of_change(self,past_trades: PastData, con_ob: ConversionObservation):     
         cur_humidity = con_ob.humidity   
         if past_trades.prev_humidity == -1:
-            past_trades.prev_humidity = cur_humidity
+            past_trades.prev_humidity = cur_humidity            
             return None
         
         if past_trades.prev_humidity > 0:
             rate_of_change = cur_humidity - past_trades.prev_humidity
             past_trades.rates_of_change.append(rate_of_change)
-
+            past_trades.prev_humidity = cur_humidity            
+            
             if len(past_trades.rates_of_change) > 10:
                 past_trades.rates_of_change.pop(0)
         
@@ -834,35 +836,49 @@ class Trader:
         if len(past_trades.rates_of_change) < 3:
             return conversions
         # Close the short position by conversion request
-        if self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW <= cur_humidity and cur_humidity <= self.HUMIDITY_OPT_HIGH) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and 
-                              past_trades.rates_of_change[-1] > 0):
-            conversions = self.positions[product]
+        if self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW <= cur_humidity and cur_humidity < self.HUMIDITY_OPT_HIGH + 5) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and past_trades.rates_of_change[-1] > 0):
+            conversions = abs(self.positions[product])
+            past_trades.sell_orchids_at = -1
+        elif self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW - 5 < cur_humidity and cur_humidity <= self.HUMIDITY_OPT_HIGH) and (past_trades.rates_of_change[-3] > 0 and past_trades.rates_of_change[-2] <= 0 and past_trades.rates_of_change[-1] < 0):
+            conversions = abs(self.positions[product])
+            past_trades.sell_orchids_at = -1
+                        
         return conversions        
         
     """
     Place orders based on humidity
     """
 
-    def compute_orchids_orders(self, con_ob: ConversionObservation, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):        
+    def compute_orchids_orders(self, state: TradingState, con_ob: ConversionObservation, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):        
         orders: List[Order] = []
         temp_pos = self.positions[product]
-        cur_humidity = con_ob.humidity        
-
+        cur_humidity = con_ob.humidity
+             
         if len(past_trades.rates_of_change) < 3:
-            return orders
+            return orders        
         
-        
-        # Sell if detect upward peak in humidity
+        # Sell if detect upward peak in humidity when humidity is above 85
         if temp_pos == 0 and (cur_humidity >= self.HUMIDITY_OPT_HIGH + 5) and (past_trades.rates_of_change[-3] > 0 and past_trades.rates_of_change[-2] <= 0 and 
-                              past_trades.rates_of_change[-1] < 0):
+                              past_trades.rates_of_change[-1] < 0): 
+            offset = 50000
+            past_trades.sell_orchids_at = state.timestamp + offset 
+        
+        # Sell if detect downward peak in humidity is below 65
+        if temp_pos == 0 and (cur_humidity <= self.HUMIDITY_OPT_LOW - 5) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and 
+                              past_trades.rates_of_change[-1] > 0): 
+            offset = 50000
+            past_trades.sell_orchids_at = state.timestamp + offset 
+        
+        if past_trades.sell_orchids_at == state.timestamp:                                
             #Market take from the orderbook 
-            for price, quantity in buy_order_depth:
+            for price, quantity in buy_order_depth.items():
                 order_quantity = min(self.POSITION_LIMIT[product] + temp_pos, quantity)
                 orders.append(Order(product, price, -order_quantity))
                 temp_pos -= order_quantity
+                
             if abs(temp_pos) < self.POSITION_LIMIT[product]:
                 order_quantity = self.POSITION_LIMIT[product] + temp_pos
-                orders.append(Order(product, price, -order_quantity))      
+                orders.append(Order(product, price, -order_quantity))                      
         
         return orders
             
@@ -916,9 +932,9 @@ class Trader:
             # Update trader data
             if product in state.own_trades:
                 # Update portfolio
-                logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
-                past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
-                logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
+                # logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
+                # past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
+                # logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
 
                 own_trades += state.own_trades[product]  
                 past_trades.own_trades[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in own_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                                  
@@ -971,15 +987,13 @@ class Trader:
             """
 
             conversions = 0
-            # Trade differently for each product
-            if product == "ORCHIDS":            
+            # Trade differently for each product            
+            if product == "ORCHIDS":                   
                 con_ob = state.observations.conversionObservations[product]
                 self.update_rates_of_change(past_trades, con_ob)
-                orders += self.compute_orchids_orders(con_ob, past_trades, buy_order_depth, sell_order_depth, product)
-                conversions = self.conversion_request(con_ob, past_trades, product)
-
-                #orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
-
+                orders += self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, product)
+                conversions = self.conversion_request(con_ob, past_trades, product)                
+                logger.print(f"rate of change list: {past_trades.rates_of_change}")
             # elif product == "STARFRUIT":
             #     # orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
 
@@ -997,14 +1011,14 @@ class Trader:
             result[product] = orders
         
         target_products = ["AMETHYSTS"]
-        self.trade_portfolio(result, past_trades.portfolio, target_products)
+        #self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
         
        
         # logger.flush(state, result, conversions, traderData)
-        logger.flush(state, result, conversions, "")
+        #logger.flush(state, result, conversions, "")
         return result, conversions, traderData
 
 

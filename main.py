@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 import jsonpickle
 import pandas as pd
 
-timestamp = 1000
+timestamp = 0
 
 listings = {
 	"AMETHYSTS": Listing(
@@ -17,7 +17,7 @@ listings = {
 		product="STARFRUIT", 
 		denomination= "SEASHELLS"
 	),
-    "STARFRUIT": Listing(
+    "ORCHIDS": Listing(
 		symbol="ORCHIDS", 
 		product="ORCHIDS", 
 		denomination= "SEASHELLS"
@@ -33,62 +33,78 @@ order_depths = {
 		buy_orders={142: 3, 141: 5},
 		sell_orders={144: -5, 145: -8}
 	),	
+	"ORCHIDS": OrderDepth(
+		buy_orders={1050: 60, 1049: 50},
+		sell_orders={1055: -30, 1057: -20}
+	),	
 }
 
 
+# own_trades = {
+# 	"AMETHYSTS": [
+#           Trade(
+# 			symbol="AMETHYSTS",
+# 			price=10000,
+# 			quantity=3,
+# 			buyer="SUBMISSION",
+# 			seller="",
+# 			timestamp=900
+# 		),
+#         Trade(
+# 			symbol="AMETHYSTS",
+# 			price=9999,
+# 			quantity=1,
+# 			buyer="SUBMISSION",
+# 			seller="",
+# 			timestamp=900
+# 		)],
+# 	"STARFRUIT": [],
+#     "ORCHIDS": []
+# }
+
+# market_trades = {
+# 	"AMETHYSTS": [
+# 		Trade(
+# 			symbol="AMETHYSTS",
+# 			price=10001,
+# 			quantity=4,
+# 			buyer="",
+# 			seller="",
+# 			timestamp=900
+# 		),
+#         Trade(
+# 			symbol="AMETHYSTS",
+# 			price=10002,
+# 			quantity=4,
+# 			buyer="",
+# 			seller="",
+# 			timestamp=900
+# 		)
+# 	],
+# 	"STARFRUIT": [],
+#     "ORCHIDS": []
+# }
+
 own_trades = {
-	"AMETHYSTS": [
-          Trade(
-			symbol="AMETHYSTS",
-			price=10000,
-			quantity=3,
-			buyer="SUBMISSION",
-			seller="",
-			timestamp=900
-		),
-        Trade(
-			symbol="AMETHYSTS",
-			price=9999,
-			quantity=1,
-			buyer="SUBMISSION",
-			seller="",
-			timestamp=900
-		)],
+	"AMETHYSTS": [],
 	"STARFRUIT": [],
     "ORCHIDS": []
 }
 
 market_trades = {
-	"AMETHYSTS": [
-		Trade(
-			symbol="AMETHYSTS",
-			price=10001,
-			quantity=4,
-			buyer="",
-			seller="",
-			timestamp=900
-		),
-        Trade(
-			symbol="AMETHYSTS",
-			price=10002,
-			quantity=4,
-			buyer="",
-			seller="",
-			timestamp=900
-		)
-	],
+	"AMETHYSTS": [],
 	"STARFRUIT": [],
     "ORCHIDS": []
 }
 
 position = {
 	"AMETHYSTS": 0,
-	"STARFRUIT": -5,
+	"STARFRUIT": 0,
     "ORCHIDS": 0
 }
 
 
-observations = Observation()
+observations = Observation({},{})
 traderData = ""
 
 
@@ -112,13 +128,22 @@ class PastData:
         self.prev_mid = -1
         self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
         self.rates_of_change: List[float] = []
-        self.prev_humidity = -1   
+        self.prev_humidity = -1  
+        self.sell_orchids_at = -1 
         
 if __name__ == '__main__':
 	trader = Trader()
-	df = pd.read_csv('../round2/past_data/prices_round_2_day_-1.csv', delimiter=';')
-
-	for i, row in df.iterrows():
+	df = pd.read_csv('../IMC-Prosperity-MyIsland/round2/past_data/prices_round_2_day_-1.csv', delimiter=';')
+	past_trades = PastData()	       
+	# past_trades.market_data = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": [], "ORCHIDS":[]}
+	# past_trades.own_trades = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": [], "ORCHIDS":[]}  
+	past_trades.market_data = {"AMETHYSTS":[], "STARFRUIT": [], "ORCHIDS":[]}
+	past_trades.own_trades = {"AMETHYSTS":[], "STARFRUIT": [], "ORCHIDS":[]}    
+	
+	
+	sell_peak_timestamp = []
+	buy_timestamp = []
+	for i, row in df.iterrows():		
 		mid_price = row["ORCHIDS"] 	
         	
 		con_ob = ConversionObservation(
@@ -130,16 +155,27 @@ if __name__ == '__main__':
 			sunlight=row['SUNLIGHT'], 
 			humidity=row['HUMIDITY']
 		)
-		conversionObservations: Dict[Product, ConversionObservation] = {"ORCHIDS": con_ob}
-		state.observations = Observation({}, conversionObservations)	
 		
-		past_trades = PastData()	       
-		past_trades.market_data = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}
-		past_trades.own_trades = {"AMETHYSTS":[(10001, 3, 700), (10005, 4, 700), (10001, 3, 800), (10005, 4, 800)], "STARFRUIT": []}    
+		conversionObservations: Dict[Product, ConversionObservation] = {"ORCHIDS": con_ob}
+		state.observations = Observation({}, conversionObservations)				
 		state.traderData = jsonpickle.encode(past_trades, keys=True)    
-
+		
 		result, conversions, traderData = trader.run(state)
+		state.timestamp += 100
+		past_trades = jsonpickle.decode(traderData, keys=True) 
+  
 		if "ORCHIDS" in result and len(result["ORCHIDS"]) > 0:
-			print(result)    
+			sell_peak_timestamp.append(state.timestamp)			
+			print(f"sell at: {sell_peak_timestamp[-1]}")
+
+			for order in result["ORCHIDS"]:				
+				state.position["ORCHIDS"] += order.quantity				
+		if conversions > 0:
+			state.position["ORCHIDS"] += conversions
+			buy_timestamp.append(state.timestamp)
+			print(f"buy back at: {buy_timestamp[-1]}")
+
+	print(f"sell timestamp: {sell_peak_timestamp}")
+	print(f"buy timestamp: {buy_timestamp}")	
     
     
