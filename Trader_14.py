@@ -100,9 +100,14 @@ class PastData:
         self.portfolio: Dict[str, Tuple[int, int]] = {"AMETHYSTS":(0,0), "STARFRUIT":(0,0),"ORCHIDS": (0,0)}
         self.prev_mid = -1
         self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
-        self.rates_of_change: List[float] = []
-        self.prev_humidity = -1     
+        self.humidity_rates_of_change: List[float] = []
+        self.sunlight_rates_of_change: List[float] = []
+        self.prev_humidity = -1    
+        self.prev_sunlight = -1 
         self.sell_orchids_at = -1   
+        self.humidity_entry = False
+        self.sunlight_entry = -1
+        self.sunlight_exit = -1        
 
 logger = Logger()
 
@@ -132,6 +137,7 @@ class Trader:
     AME_THRESHOLD_LOW = 9996
     HUMIDITY_OPT_LOW = 60
     HUMIDITY_OPT_HIGH = 80 
+    SUNLIGHT_AVG = 2500
 
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0}  
     cur_timestamp = 0
@@ -794,55 +800,83 @@ class Trader:
         if make_buy_quantity != 0:
             orders.append(Order(product, buy_threshold_make, make_buy_quantity))
 
-        return orders, temp_position
-
-
-
-    def simple_trade(self, con_ob: ConversionObservation, past_trades: PastData, buy_order_depth: Dict[int, int], sell_order_depth: Dict[int, int], product: str):
-        orders: List[Order] = []   
-        #orders.append(Order(product, int(con_ob.bidPrice), -1))
-        #orders.append(Order(product, int(con_ob.askPrice), 1))
-
-        for price, quanity in buy_order_depth.items():
-            orders.append(Order(product, price, -1))
-
- 
-        return orders
-    
+        return orders, temp_position   
+        
     """
     Update the rates of change list whenever there's new data
     """
     def update_rates_of_change(self,past_trades: PastData, con_ob: ConversionObservation):     
-        cur_humidity = con_ob.humidity   
+        cur_humidity = con_ob.humidity
+        cur_sunlight = con_ob.sunlight   
         if past_trades.prev_humidity == -1:
-            past_trades.prev_humidity = cur_humidity            
+            past_trades.prev_humidity = cur_humidity
+            past_trades.prev_sunlight = cur_sunlight            
             return None
         
-        if past_trades.prev_humidity > 0:
-            rate_of_change = cur_humidity - past_trades.prev_humidity
-            past_trades.rates_of_change.append(rate_of_change)
-            past_trades.prev_humidity = cur_humidity            
+        if past_trades.prev_humidity > 0 or past_trades.prev_sunlight > 0:
+            rate_of_change_humidity = cur_humidity - past_trades.prev_humidity
+            rate_of_change_sunlight = cur_sunlight - past_trades.prev_sunlight
             
-            if len(past_trades.rates_of_change) > 10:
-                past_trades.rates_of_change.pop(0)
+            past_trades.humidity_rates_of_change.append(rate_of_change_humidity)
+            past_trades.sunlight_rates_of_change.append(rate_of_change_sunlight)
+            
+            past_trades.prev_humidity = cur_humidity
+            past_trades.prev_sunlight = cur_sunlight                        
+            
+            if len(past_trades.humidity_rates_of_change) > 10:
+                past_trades.humidity_rates_of_change.pop(0)
+            if len(past_trades.sunlight_rates_of_change) > 100:
+                past_trades.sunlight_rates_of_change.pop(0)                                        
         
 
     """
     Place conversion request based on current position and humidity peak
     """
-    def conversion_request(self, con_ob: ConversionObservation, past_trades: PastData, product: str):
+    def conversion_request(self, state: TradingState, con_ob: ConversionObservation, past_trades: PastData, product: str):
+        if len(past_trades.humidity_rates_of_change) < 3:
+            return 0
+        
         conversions = 0
         cur_humidity = con_ob.humidity
-        if len(past_trades.rates_of_change) < 3:
-            return conversions
-        # Close the short position by conversion request
-        if self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW <= cur_humidity and cur_humidity < self.HUMIDITY_OPT_HIGH + 5) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and past_trades.rates_of_change[-1] > 0):
-            conversions = abs(self.positions[product])
-            past_trades.sell_orchids_at = -1
-        elif self.positions[product] < 0 and (self.HUMIDITY_OPT_LOW - 5 < cur_humidity and cur_humidity <= self.HUMIDITY_OPT_HIGH) and (past_trades.rates_of_change[-3] > 0 and past_trades.rates_of_change[-2] <= 0 and past_trades.rates_of_change[-1] < 0):
-            conversions = abs(self.positions[product])
-            past_trades.sell_orchids_at = -1
-                        
+        cur_sunlight = con_ob.sunlight
+        avg_sunlight_rate_of_change = sum(past_trades.sunlight_rates_of_change) / len(past_trades.sunlight_rates_of_change)
+        avg_humidity_rate_of_change = sum(past_trades.humidity_rates_of_change) / len(past_trades.humidity_rates_of_change)
+        
+        # Close the position for humidity entry
+        if past_trades.humidity_entry and self.positions[product] < 0:            
+                      
+            if (self.HUMIDITY_OPT_LOW <= cur_humidity and cur_humidity < self.HUMIDITY_OPT_HIGH + 5) and (past_trades.humidity_rates_of_change[-3] < 0 and past_trades.humidity_rates_of_change[-2] >= 0 and past_trades.humidity_rates_of_change[-1] > 0):
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.humidity_entry = False
+                
+            elif (self.HUMIDITY_OPT_LOW - 5 < cur_humidity and cur_humidity <= self.HUMIDITY_OPT_HIGH) and (past_trades.humidity_rates_of_change[-3] > 0 and past_trades.humidity_rates_of_change[-2] <= 0 and past_trades.humidity_rates_of_change[-1] < 0):
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.humidity_entry = False
+                
+            elif cur_sunlight < self.SUNLIGHT_AVG and avg_sunlight_rate_of_change < 0:
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.humidity_entry = False                                     
+            
+        # Close the position for sunlight entry
+        if past_trades.sunlight_entry in [1, 2] and self.positions[product] < 0:         
+            if state.timestamp == past_trades.sunlight_exit:
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.sunlight_entry = -1
+                
+            elif cur_humidity > self.HUMIDITY_OPT_HIGH and avg_humidity_rate_of_change > 0:
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.sunlight_entry = -1
+                
+            elif cur_humidity < self.HUMIDITY_OPT_LOW and avg_humidity_rate_of_change < 0:
+                conversions = abs(self.positions[product])
+                past_trades.sell_orchids_at = -1
+                past_trades.sunlight_entry = -1
+                             
         return conversions        
         
     """
@@ -853,23 +887,68 @@ class Trader:
         orders: List[Order] = []
         temp_pos = self.positions[product]
         cur_humidity = con_ob.humidity
+        cur_sunlight = con_ob.sunlight
              
-        if len(past_trades.rates_of_change) < 3:
+        if len(past_trades.humidity_rates_of_change) < 3:
             return orders        
         
-        # Sell if detect upward peak in humidity when humidity is above 85
-        if temp_pos == 0 and (cur_humidity >= self.HUMIDITY_OPT_HIGH + 5) and (past_trades.rates_of_change[-3] > 0 and past_trades.rates_of_change[-2] <= 0 and 
-                              past_trades.rates_of_change[-1] < 0): 
-            offset = 50000
-            past_trades.sell_orchids_at = state.timestamp + offset 
+        """
+        Sell entry for humidity
+        """
+        if not past_trades.humidity_entry:                                                 
+            # Sell if detect upward peak in humidity when humidity is above 85
+            if temp_pos == 0 and (cur_humidity >= self.HUMIDITY_OPT_HIGH + 5) and (past_trades.humidity_rates_of_change[-3] > 0 and past_trades.humidity_rates_of_change[-2] <= 0 and 
+                                past_trades.humidity_rates_of_change[-1] < 0): 
+                offset = 50000
+                past_trades.sell_orchids_at = state.timestamp + offset
+                past_trades.humidity_entry = True
+                past_trades.sunlight_entry = -1 
+            
+            # Sell if detect downward peak in humidity is below 65
+            elif temp_pos == 0 and (cur_humidity <= self.HUMIDITY_OPT_LOW - 5) and (past_trades.humidity_rates_of_change[-3] < 0 and past_trades.humidity_rates_of_change[-2] >= 0 and 
+                                past_trades.humidity_rates_of_change[-1] > 0): 
+                offset = 50000
+                past_trades.sell_orchids_at = state.timestamp + offset
+                past_trades.humidity_entry = True
+                past_trades.sunlight_entry = -1
+            
+            elif state.timestamp < 100000 and cur_humidity >= self.HUMIDITY_OPT_HIGH + 14:
+                past_trades.sell_orchids_at = state.timestamp
+                past_trades.humidity_entry = True
+                past_trades.sunlight_entry = -1
+                                    
+                
+        """
+        Sell entry for sunlight
+        """  
+        average_rate_of_change = sum(past_trades.sunlight_rates_of_change) / len(past_trades.sunlight_rates_of_change)
+        if past_trades.sunlight_entry == -1:                          
+            if temp_pos == 0 and int(cur_sunlight) in [2500,2499,2498,2497] and average_rate_of_change < 0:
+                entry_offset = 80000
+                exit_offset = 40000            
+                past_trades.sell_orchids_at = state.timestamp + entry_offset
+                past_trades.sunlight_exit = state.timestamp + entry_offset + exit_offset 
+                past_trades.sunlight_entry = 1
+                past_trades.humidity_entry = False
+                
+            elif temp_pos == 0 and int(cur_sunlight) in [2500,2501,2502,2503] and average_rate_of_change > 0:
+                entry_offset = 35000
+                exit_offset = 30000            
+                past_trades.sell_orchids_at = state.timestamp + entry_offset
+                past_trades.sunlight_exit = state.timestamp + entry_offset + exit_offset 
+                past_trades.sunlight_entry = 2
+                past_trades.humidity_entry = False                        
         
-        # Sell if detect downward peak in humidity is below 65
-        if temp_pos == 0 and (cur_humidity <= self.HUMIDITY_OPT_LOW - 5) and (past_trades.rates_of_change[-3] < 0 and past_trades.rates_of_change[-2] >= 0 and 
-                              past_trades.rates_of_change[-1] > 0): 
-            offset = 50000
-            past_trades.sell_orchids_at = state.timestamp + offset 
+        # cancel false signal
+        if past_trades.sunlight_entry == 1 and past_trades.sell_orchids_at > state.timestamp and average_rate_of_change > 0 and cur_sunlight > self.SUNLIGHT_AVG:
+            past_trades.sell_orchids_at = -1
+            past_trades.sunlight_entry = -1
+        elif past_trades.sunlight_entry == 2 and past_trades.sell_orchids_at > state.timestamp and average_rate_of_change < 0 and cur_sunlight < self.SUNLIGHT_AVG:
+            past_trades.sell_orchids_at = -1
+            past_trades.sunlight_entry = -1
         
-        if past_trades.sell_orchids_at == state.timestamp:                                
+        #Execute the sell
+        if past_trades.sell_orchids_at == state.timestamp and self.positions[product] == 0:                                
             #Market take from the orderbook 
             for price, quantity in buy_order_depth.items():
                 order_quantity = min(self.POSITION_LIMIT[product] + temp_pos, quantity)
@@ -878,8 +957,8 @@ class Trader:
                 
             if abs(temp_pos) < self.POSITION_LIMIT[product]:
                 order_quantity = self.POSITION_LIMIT[product] + temp_pos
-                orders.append(Order(product, price, -order_quantity))                      
-        
+                orders.append(Order(product, price, -order_quantity))  
+                            
         return orders
             
 
@@ -901,7 +980,8 @@ class Trader:
             past_trades.own_trades = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []} 
             past_trades.open_positions = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': []} 
             past_trades.portfolio = {'AMETHYSTS': (0,0), 'STARFRUIT': (0,0), 'ORCHIDS': (0,0)} # (position, avg_price)
-            past_trades.rates_of_change = []
+            past_trades.humidity_rates_of_change = []
+            past_trades.sunlight_rates_of_change = []
         else:
             past_trades = jsonpickle.decode(state.traderData)                     
 
@@ -932,9 +1012,9 @@ class Trader:
             # Update trader data
             if product in state.own_trades:
                 # Update portfolio
-                # logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
-                # past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
-                # logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
+                logger.print(f"{product} Portfolio before update: {past_trades.portfolio[product]}")
+                past_trades.portfolio[product] = self.update_portfolio(past_trades.portfolio[product], state.own_trades[product], past_trades.mid_prices[product])
+                logger.print(f"{product} Portfolio after update: {past_trades.portfolio[product]}")
 
                 own_trades += state.own_trades[product]  
                 past_trades.own_trades[product] += [(trade.price, trade.quantity, trade.timestamp) for trade in own_trades if trade.timestamp == state.timestamp - 100 or trade.timestamp == state.timestamp]                                                                                  
@@ -980,45 +1060,45 @@ class Trader:
             if len(state.order_depths[product].buy_orders) > 0:       
                 buy_order_depth = state.order_depths[product].buy_orders                
             if len(state.order_depths[product].sell_orders) > 0:      
-                sell_order_depth = state.order_depths[product].sell_orders
-
+                sell_order_depth = state.order_depths[product].sell_orders    
+            
             """
             Main trading logics
             """
 
             conversions = 0
             # Trade differently for each product            
-            if product == "ORCHIDS":                   
-                con_ob = state.observations.conversionObservations[product]
+            if product == "ORCHIDS":                                             
+                                
+                con_ob = state.observations.conversionObservations[product]                                
                 self.update_rates_of_change(past_trades, con_ob)
-                orders += self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, product)
-                conversions = self.conversion_request(con_ob, past_trades, product)                
-                logger.print(f"rate of change list: {past_trades.rates_of_change}")
-            # elif product == "STARFRUIT":
-            #     # orders += self.execute_scalping(past_trades, buy_order_depth, sell_order_depth, product)
-
-            #     """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-            #     if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
-            #         trade_threshold = self.compute_trade_threshold(past_trades, product)
-            #         portfolio_trade = True
-            #         threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=portfolio_trade) 
-            #         orders += threshold_orders
+                orders += self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, product)                
+                conversions = self.conversion_request(state, con_ob, past_trades, product)                
                 
-            # elif product == "AMETHYSTS":                          
-            #     orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)    
+                logger.print(f"humidity rate of change list: {past_trades.humidity_rates_of_change}")
+                logger.print(f"sunlight rate of change list: {past_trades.sunlight_rates_of_change}")
+            elif product == "STARFRUIT":                
+
+                """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
+                if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR[product]-1: 
+                    trade_threshold = self.compute_trade_threshold(past_trades, product)
+                    portfolio_trade = True
+                    threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, product, trade_portfolio=portfolio_trade) 
+                    orders += threshold_orders
+                
+            elif product == "AMETHYSTS":                          
+                orders += self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, product)    
               
                 
             result[product] = orders
         
         target_products = ["AMETHYSTS"]
-        #self.trade_portfolio(result, past_trades.portfolio, target_products)
+        self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
-        
-       
-        # logger.flush(state, result, conversions, traderData)
-        #logger.flush(state, result, conversions, "")
+                       
+        logger.flush(state, result, conversions, "")
         return result, conversions, traderData
 
 

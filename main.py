@@ -127,9 +127,14 @@ class PastData:
         self.portfolio: Dict[str, Tuple[int, int]] = {"AMETHYSTS":(0,0), "STARFRUIT":(0,0),"ORCHIDS": (0,0)}
         self.prev_mid = -1
         self.mid_prices: Dict[str, List[int]] = {"AMETHYSTS":[], "STARFRUIT":[], "ORCHIDS": []}
-        self.rates_of_change: List[float] = []
-        self.prev_humidity = -1  
-        self.sell_orchids_at = -1 
+        self.humidity_rates_of_change: List[float] = []
+        self.sunlight_rates_of_change: List[float] = []
+        self.prev_humidity = -1    
+        self.prev_sunlight = -1 
+        self.sell_orchids_at = -1   
+        self.humidity_entry = False
+        self.sunlight_entry = False
+        self.sunlight_exit = -1
         
 if __name__ == '__main__':
 	trader = Trader()
@@ -165,15 +170,17 @@ if __name__ == '__main__':
 		past_trades = jsonpickle.decode(traderData, keys=True) 
   
 		if "ORCHIDS" in result and len(result["ORCHIDS"]) > 0:
-			sell_peak_timestamp.append(state.timestamp)			
+			sell_peak_timestamp.append(state.timestamp)	   					
 			print(f"sell at: {sell_peak_timestamp[-1]}")
-
 			for order in result["ORCHIDS"]:				
-				state.position["ORCHIDS"] += order.quantity				
+				state.position["ORCHIDS"] += order.quantity	
+			print(state.position["ORCHIDS"])
+   
 		if conversions > 0:
-			state.position["ORCHIDS"] += conversions
+			state.position["ORCHIDS"] += conversions			
 			buy_timestamp.append(state.timestamp)
 			print(f"buy back at: {buy_timestamp[-1]}")
+			print(state.position["ORCHIDS"])
 
 	print(f"sell timestamp: {sell_peak_timestamp}")
 	print(f"buy timestamp: {buy_timestamp}")	
