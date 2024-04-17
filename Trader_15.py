@@ -125,10 +125,11 @@ class Trader:
       
     PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT', 'ORCHIDS'] 
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 100, 'CHOCOLATE': 250, 'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60}
-    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10, 'ORCHIDS': 10}  
-    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25, 'ORCHIDS': 20} 
-    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15, 'ORCHIDS': 20}
-    WINDOW_SIZE_MIDPRICE = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 5, 'GIFT_BASKET': 5}
+    WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10, 'ORCHIDS': 10, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 30, 'GIFT_BASKET': 5} 
+    WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25, 'ORCHIDS': 20,'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
+    WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15, 'ORCHIDS': 20, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
+    WINDOW_SIZE_MIDPRICE = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
+    WINDOW_SIZE_EXP = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 7, 'GIFT_BASKET': 5}
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 5000    
     TICK_SIZE = 1
@@ -204,11 +205,10 @@ class Trader:
     """
     Calculate the Volume Weighted SMA for the last `window_size` trades of a product.
     """
-    def calculate_volume_weighted_sma(self, past_trades: PastData, product: str):        
+    def calculate_volume_weighted_sma(self, past_trades: PastData, product: str):                
     
         trades_by_timestamp = sorted(self.convert_to_timestamp_dict(past_trades, product).items())
 
-        
         if len(trades_by_timestamp) < self.WINDOW_SIZE_VOL[product]:
             return 0
         
@@ -230,9 +230,25 @@ class Trader:
 
         return vw_sma
     
+    
         """
     Calculate SMA based on the mid price of the past timestamps
     """
+    
+    def calculate_ema(self, past_trades: PastData, product: str):    
+        if len(past_trades.mid_prices[product]) < self.WINDOW_SIZE_EXP[product]:
+            return 0
+        
+        alpha = 2 /(self.WINDOW_SIZE_EXP[product] + 1)
+        
+        prices = past_trades.mid_prices[product][-self.WINDOW_SIZE_EXP[product]:]
+        ema = [prices[0]]  # Start the EMA with the first price
+        
+        for price in prices[1:]:
+            ema.append(alpha * price + (1 - alpha) * ema[-1])
+            
+        return ema[-1]
+    
     def calculate_midprice_sma(self, past_trades: PastData, product: str):
         if len(past_trades.mid_prices[product]) < self.WINDOW_SIZE_MIDPRICE[product]:
             return 0
@@ -327,14 +343,13 @@ class Trader:
         temp_position = self.positions[product]
         sorted_buy_order_depth = sorted(buy_order_depth.items())
 
-        current_sma = self.calculate_sma(past_trades, 0, product)                
-        
+        current_sma = self.calculate_ema(past_trades, product)                
+        logger.print(f"SMA: {current_sma}")
         # Go through each buy order depth to see if there's a good opportunity to match the order by buying
         for price, quantity in sorted_buy_order_depth:
-           
             if current_sma == 0:
                 break                
-            if price >= current_sma + tick_size: 
+            if price < current_sma - tick_size: 
                 order_quantity: int                          
                 order_quantity = min((self.POSITION_LIMIT[product] + temp_position), quantity)                    
                 if order_quantity > 0:
@@ -350,13 +365,13 @@ class Trader:
         temp_position = self.positions[product]
         sorted_buy_order_depth = reversed(sorted(sell_order_depth.items()))
 
-        current_sma = self.calculate_sma(past_trades, 0, product)                
-    
+        current_sma = self.calculate_ema(past_trades, product)                
+        logger.print(f"SMA: {current_sma}")
         # Go through each sell order depth to see if there's a good opportunity to match the order by buying 
         for price, quantity in sorted_buy_order_depth:            
             if current_sma == 0:
                 break
-            if price <= current_sma - tick_size:
+            if price > current_sma + tick_size:
                 order_quantity: int                                  
                 order_quantity = min((self.POSITION_LIMIT[product] - temp_position), abs(quantity))               
                 if order_quantity > 0:
@@ -475,11 +490,10 @@ class Trader:
                         temp_position += order_quantity
                         orders.append(Order(product, price, order_quantity)) 
 
-        elif self.positions[product] < 0 and len(past_trades.open_positions[product]) > 0:
-            # Buying back can try if price - 1 >= best_bid
+        elif self.positions[product] < 0 and len(past_trades.open_positions[product]) > 0:            
             sorted_open_pos = reversed(sorted(past_trades.open_positions[product], key=lambda x: x[0])) #highest price first 
-            profit = 5
-            stop_loss = 10
+            profit = arbitrage_amount * 2
+            stop_loss = arbitrage_amount
             for price, quantity in sorted_open_pos:
                 if price - profit >= best_ask:
                     order_quantity = -quantity            
@@ -491,8 +505,8 @@ class Trader:
         elif self.positions[product] > 0 and len(past_trades.open_positions[product]) > 0:
             #Selling to close long position
             sorted_open_pos = sorted(past_trades.open_positions[product], key=lambda x: x[0]) #lowest price first
-            profit = 10
-            stop_loss = 10
+            profit = arbitrage_amount * 2
+            stop_loss = arbitrage_amount
             for price, quantity in sorted_open_pos:
                 if price + profit <= best_bid:  
                     order_quantity = -quantity                    
@@ -1006,6 +1020,7 @@ class Trader:
                     else:
                         temp_position += -order_quantity
                         orders.append(Order(product, price, -order_quantity)) 
+                break
         elif close:
             for price, quantity in order_depths.items():                                                                             
                 order_quantity = min(abs(temp_position), abs(quantity))               
@@ -1015,70 +1030,69 @@ class Trader:
                         orders.append(Order(product, price, order_quantity)) 
                     else:
                         temp_position += -order_quantity
-                        orders.append(Order(product, price, -order_quantity))  
+                        orders.append(Order(product, price, -order_quantity)) 
+                break 
                         
                                       
         return orders
                 
-    def compute_roses_and_gb(self, past_trades: PastData) -> List[Order]: 
+    def pairs_trading(self, past_trades: PastData, product_1: str, product_2: str, long_ma_length: int, short_ma_length: int, entry_threshold: float, exit_threshold: float) -> List[Order]: 
+                     
+        product_1_orders: List[Order] = []  
+        product_2_orders: List[Order] = []    
         
-        #Threshold for trading on the z-score
-        ENTRY_THRESHOLD = 0.2    
-        EXIT_THRESHOLD = 0.1                
-        # Moving average lengths
-        LONG_MA_LENGTH = 30
-        SHORT_MA_LENGTH = 10
-        roses_orders: List[Order] = []  
-        gb_orders: List[Order] = []    
-        
-        if len(past_trades.mid_prices["ROSES"]) < LONG_MA_LENGTH:
+        if len(past_trades.mid_prices[product_1]) < long_ma_length:
             return [], []
      
-        roses_prices = np.array(past_trades.mid_prices["ROSES"][-LONG_MA_LENGTH:])
-        gift_basket_prices = np.array(past_trades.mid_prices["GIFT_BASKET"][-LONG_MA_LENGTH:])
-        short_roses_prices = np.array(past_trades.mid_prices["ROSES"][-SHORT_MA_LENGTH:])
-        short_gift_basket_prices = np.array(past_trades.mid_prices["GIFT_BASKET"][-SHORT_MA_LENGTH:])
+        product_1_prices = np.array(past_trades.mid_prices[product_1][-long_ma_length:])
+        product_2_prices = np.array(past_trades.mid_prices[product_2][-long_ma_length:])
+        short_product_1_prices = np.array(past_trades.mid_prices[product_1][-short_ma_length:])
+        short_product_2_prices = np.array(past_trades.mid_prices[product_2][-short_ma_length:])
         
         #Get long MA
-        long_ma = np.mean(roses_prices - gift_basket_prices)
+        long_ma = np.mean(product_1_prices - product_2_prices)
+        logger.print(f"Long_MA: {long_ma}")
         #Get the std of the long window
-        long_std = np.std(roses_prices - gift_basket_prices)        
+        long_std = np.std(product_1_prices - product_2_prices)  
+        logger.print(f"long_std: {long_std}")      
         #Get short MA
-        short_ma = np.mean(short_roses_prices - short_gift_basket_prices)
-        
+        short_ma = np.mean(short_product_1_prices - short_product_2_prices)
+        logger.print(f"Short_MA: {short_ma}")
         # Compute z-score
         if long_std > 0:
             zscore = (short_ma - long_ma)/long_std
+        
+        logger.print(f"zscore: {zscore}")
 
-        roses_buy_order_depth, roses_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,"ROSES")
-        gb_buy_order_depth, gb_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,"GIFT_BASKET")        
-        if zscore > ENTRY_THRESHOLD and not past_trades.currently_short_spread:
-            roses_orders += self.market_take_orders(roses_buy_order_depth, "ROSES", False) # short top
-            gb_orders += self.market_take_orders(gb_sell_order_depth, "GIFT_BASKET", True) # long bottom
+        product_1_buy_order_depth, product_1_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_1)
+        product_2_buy_order_depth, product_2_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_2)        
+        if zscore > entry_threshold and not past_trades.currently_short_spread:
+            product_1_orders += self.market_take_orders(product_1_buy_order_depth, product_1, False) # short top
+            product_2_orders += self.market_take_orders(product_2_sell_order_depth, product_2, True) # long bottom
             past_trades.currently_short_spread = True
             past_trades.currently_long_spread = False
         
-        elif zscore < -ENTRY_THRESHOLD and not past_trades.currently_long_spread:
-            roses_orders += self.market_take_orders(roses_sell_order_depth, "ROSES", True) # long top
-            gb_orders += self.market_take_orders(gb_buy_order_depth, "GIFT_BASKET", False) # short bottom
+        elif zscore < -entry_threshold and not past_trades.currently_long_spread:
+            product_1_orders += self.market_take_orders(product_1_sell_order_depth, product_1, True) # long top
+            product_2_orders += self.market_take_orders(product_2_buy_order_depth, product_2, False) # short bottom
             past_trades.currently_short_spread = False
             past_trades.currently_long_spread = True
         
-        elif abs(zscore) < EXIT_THRESHOLD:
-            if self.positions["ROSES"] > 0:
-                roses_orders += self.market_take_orders(roses_buy_order_depth, "ROSES", False, close=True) 
-            elif self.positions["ROSES"] < 0:
-                roses_orders += self.market_take_orders(roses_sell_order_depth, "ROSES", True, close=True)
+        elif abs(zscore) < exit_threshold:
+            if self.positions[product_1] > 0:
+                product_1_orders += self.market_take_orders(product_1_buy_order_depth, product_1, False, close=True) 
+            elif self.positions[product_1] < 0:
+                product_1_orders += self.market_take_orders(product_1_sell_order_depth, product_1, True, close=True)
                 
-            if self.positions["GIFT_BASKET"] > 0:
-                gb_orders += self.market_take_orders(gb_buy_order_depth, "GIFT_BASKET", False, close=True) 
-            elif self.positions["GIFT_BASKET"] < 0:
-                gb_orders += self.market_take_orders(gb_sell_order_depth, "GIFT_BASKET", True, close=True)                
+            if self.positions[product_2] > 0:
+                product_2_orders += self.market_take_orders(product_2_buy_order_depth, product_2, False, close=True) 
+            elif self.positions[product_2] < 0:
+                product_2_orders += self.market_take_orders(product_2_sell_order_depth, product_2, True, close=True)                
                                                                 
             past_trades.currently_short_spread = False
             past_trades.currently_long_spread = False
             
-        return roses_orders, gb_orders                
+        return product_1_orders, product_2_orders                
         
                 
     """
@@ -1168,34 +1182,44 @@ class Trader:
         Main trading logics
         """      
         
+        
         #Trade Gift Basket and Roses
-        roses_orders, gb_orders = self.compute_roses_and_gb(past_trades)        
-        result["ROSES"] = roses_orders
-        result["GIFT_BASKET"] = gb_orders
+        # roses_orders, gb_orders = self.pairs_trading(past_trades,"ROSES", "GIFT_BASKET", 40, 7, 1.5, 0.4)        
+        # result["ROSES"] = roses_orders
+        # result["GIFT_BASKET"] = gb_orders
+        
+        # Trade Chocolate and Strawberries
+        choco_orders, strawberries_orders = self.pairs_trading(past_trades,"CHOCOLATE", "STRAWBERRIES", 40, 10, 1.5, 0.2)        
+        result["CHOCOLATE"] = choco_orders
+        result["STRAWBERRIES"] = strawberries_orders
+        
+        # Trade Roses
+        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ROSES")
+        # result["ROSES"] = self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, "ROSES")
         
         # Trade Orchids  
         conversions = 0                                                           
-        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
-        con_ob = state.observations.conversionObservations["ORCHIDS"]                                
-        self.update_rates_of_change(past_trades, con_ob)
-        result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
-        conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
+        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
+        # con_ob = state.observations.conversionObservations["ORCHIDS"]                                
+        # self.update_rates_of_change(past_trades, con_ob)
+        # result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
+        # conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
         
         # Trade STARFRUIT                   
         """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
-        if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
-            trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
-            portfolio_trade = True
-            threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
-            result["STARFRUIT"] = threshold_orders             
+        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
+        # if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
+        #     trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
+        #     portfolio_trade = True
+        #     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
+        #     result["STARFRUIT"] = threshold_orders             
             
         # Trade AMETHYSTS            
-        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
-        result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
+        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
+        # result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
                                                 
         target_products = ["AMETHYSTS"]
-        self.trade_portfolio(result, past_trades.portfolio, target_products)
+        #self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
