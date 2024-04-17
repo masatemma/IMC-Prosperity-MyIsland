@@ -123,7 +123,7 @@ class Trader:
     PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 1}
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15}
       
-    PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT', 'ORCHIDS'] 
+    PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT', 'ORCHIDS', 'CHOCOLATE', 'STRAWBERRIES', 'ROSES', 'GIFT_BASKET']
     POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 100, 'CHOCOLATE': 250, 'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60}
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10, 'ORCHIDS': 10, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 30, 'GIFT_BASKET': 5} 
     WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25, 'ORCHIDS': 20,'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
@@ -706,7 +706,7 @@ class Trader:
         if len(sell_order_depth) != 0 and len(buy_order_depth) != 0:
             best_ask, _ = list(sell_order_depth.items())[0]
             best_bid, _ = list(buy_order_depth.items())[0]
-            mid_price = (best_ask + best_bid)//2
+            mid_price = (best_ask + best_bid)/2
             past_trades.mid_prices[product].append(mid_price)
         else:            
             past_trades.mid_prices[product].append(past_trades.mid_prices[product][-1])
@@ -1094,7 +1094,42 @@ class Trader:
             
         return product_1_orders, product_2_orders                
         
-                
+    
+    def compute_orders_basket(self, past_trades: PastData):
+
+        gb_orders: List[Order] = []         
+        gb_buy_order_depth, gb_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state, "GIFT_BASKET") 
+        worst_ask = next(reversed(gb_sell_order_depth))
+        worst_bid = next(reversed(gb_buy_order_depth))                                       
+
+        res_buy = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - 380
+        res_sell = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - 380
+        logger.print(f"DIFF: {res_buy}")
+        
+        basket_std = 110 # 110
+        trade_at = basket_std*0.5        
+
+        temp_pos = self.positions['GIFT_BASKET']
+        temp_sell = self.positions['GIFT_BASKET']     
+
+        if res_sell > trade_at:
+            vol = self.positions['GIFT_BASKET'] + self.POSITION_LIMIT['GIFT_BASKET']            
+            assert(vol >= 0)
+            if vol > 0:
+                logger.print(f"SELL at {worst_bid} for {vol}")                
+                gb_orders.append(Order('GIFT_BASKET', worst_bid, -vol))                 
+                temp_sell -= vol
+                #uku_pos += vol
+        elif res_buy < -trade_at:
+            vol = self.POSITION_LIMIT['GIFT_BASKET'] - self.positions['GIFT_BASKET']
+            assert(vol >= 0)
+            if vol > 0:
+                logger.print(f"BUY at {worst_ask} for {vol}")
+                gb_orders.append(Order('GIFT_BASKET', worst_ask, vol))                
+                temp_pos += vol
+        
+        return gb_orders
+    
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
     and outputs a list of orders to be sent
@@ -1183,16 +1218,15 @@ class Trader:
         """      
         
         
-        #Trade Gift Basket and Roses
-        # roses_orders, gb_orders = self.pairs_trading(past_trades,"ROSES", "GIFT_BASKET", 40, 7, 1.5, 0.4)        
-        # result["ROSES"] = roses_orders
+        #Trade Gift Basket
+        gb_orders = self.compute_orders_basket(past_trades)
+        result["GIFT_BASKET"] = gb_orders
+        
+        # Trade Roses
+        # strawberries_orders, gb_orders = self.pairs_trading(past_trades,"STRAWBERRIES", "GIFT_BASKET", 40, 10, 1.5, 0.2)        
+        # result["STRAWBERRIES"] = strawberries_orders
         # result["GIFT_BASKET"] = gb_orders
-        
-        # Trade Chocolate and Strawberries
-        choco_orders, strawberries_orders = self.pairs_trading(past_trades,"CHOCOLATE", "STRAWBERRIES", 40, 10, 1.5, 0.2)        
-        result["CHOCOLATE"] = choco_orders
-        result["STRAWBERRIES"] = strawberries_orders
-        
+
         # Trade Roses
         # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ROSES")
         # result["ROSES"] = self.scalping_strategy_one(past_trades, buy_order_depth, sell_order_depth, "ROSES")
