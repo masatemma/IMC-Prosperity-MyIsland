@@ -1102,7 +1102,7 @@ class Trader:
         if len(past_trades.basket_premium) < self.PREMIUM_LR_LENGTH:
             return None
         
-        time_steps = time_steps = np.arange(1, self.PREMIUM_LR_LENGTH + 1).reshape(-1, 1)
+        time_steps = np.arange(1, self.PREMIUM_LR_LENGTH + 1).reshape(-1, 1)
         X_bias = np.hstack([np.ones((time_steps.shape[0], 1)), time_steps])        
         premiums = past_trades.basket_premium[-self.PREMIUM_LR_LENGTH:]
         premiums
@@ -1152,6 +1152,26 @@ class Trader:
         
         return gb_orders
     
+    def calculate_premium_stdev(self, past_trades: PastData):
+        if len(past_trades.basket_premium) < self.PREMIUM_LR_LENGTH:
+            return 0
+        
+        X = [self.cur_timestamp + i * 100 for i in range(-self.PREMIUM_LR_LENGTH, 0)]
+        Y = [past_trades.basket_premium[i] for i in range(-self.PREMIUM_LR_LENGTH, 0)]
+
+        X = np.column_stack((np.ones_like(Y), X))
+        coeffs = np.linalg.inv(X.T @ X) @ X.T @ Y
+
+        residuals = Y - X @ coeffs
+
+        n = X.shape[0]
+        p = X.shape[1]
+        dof = n - p
+
+        stdev = np.sqrt(np.sum(residuals ** 2) / dof) 
+        
+        return stdev
+    
     def compute_orders_basket_two(self, past_trades: PastData):
         gb_orders: List[Order] = []         
         gb_buy_order_depth, gb_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state, "GIFT_BASKET") 
@@ -1161,40 +1181,58 @@ class Trader:
         temp_pos_sell = self.positions['GIFT_BASKET']
         best_ask, best_bid, _ = self.get_order_book_insight(gb_buy_order_depth, gb_sell_order_depth)   
         
-        
         predicted_premium = self.predict_basket_premium(past_trades)        
-        
+        basket_std = self.calculate_premium_stdev(past_trades)                
         observed_premium = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1]       
         self.update_premium(past_trades, observed_premium)
         
-        if predicted_premium == None:
-            return gb_orders                
-        logger.print(f"predicted prem: {type(predicted_premium)}")
-       
-        res_sell = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - predicted_premium
-        res_buy = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - predicted_premium
         
-        basket_std = 10
-        trade_at = basket_std*0.5        
-
-        order_amount = 10
-        if res_sell > trade_at:
-            order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] + self.positions['GIFT_BASKET'], order_amount)
-            assert(order_quantity >= 0)
-            if order_quantity > 0:
-                logger.print(f"SELL at {worst_bid} for {order_quantity}")                
-                gb_orders.append(Order('GIFT_BASKET', best_bid, -order_quantity))                 
-                temp_pos_sell -= order_quantity
-                #uku_pos += vol
-        elif res_buy < -trade_at:
-            order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] - self.positions['GIFT_BASKET'], order_amount)
-            assert(order_quantity >= 0)
-            if order_quantity > 0:
-                logger.print(f"BUY at {best_ask} for {order_quantity}")
-                gb_orders.append(Order('GIFT_BASKET', best_ask, order_quantity))                
-                temp_pos_buy += order_quantity
+        if predicted_premium == None or basket_std == 0:
+            return gb_orders        
                 
+        premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - predicted_premium        
+        logger.print(f"predicted prem: {predicted_premium}")
+        logger.print(f"observed prem: {observed_premium}")
+        logger.print(f"basket_std: {basket_std}")
+         
+        order_amount = 1
+                        
+        # if basket_std > 7: 
+        #     trade_at = basket_std * 2.0                                    
+        #     if premium_diff > trade_at:           
+        #         order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] + self.positions['GIFT_BASKET'], order_amount)
+        #         assert(order_quantity >= 0)
+        #         if order_quantity > 0:
+        #             logger.print(f"SELL at {best_bid} for {order_quantity}")                
+        #             gb_orders.append(Order('GIFT_BASKET', best_bid, -order_quantity))                 
+        #             temp_pos_sell -= order_quantity
+                    
+        #     elif premium_diff < -trade_at:        
+        #         order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] - self.positions['GIFT_BASKET'], order_amount)
+        #         assert(order_quantity >= 0)
+        #         if order_quantity > 0:
+        #             logger.print(f"BUY at {best_ask} for {order_quantity}")
+        #             gb_orders.append(Order('GIFT_BASKET', best_ask, order_quantity))                
+        #             temp_pos_buy += order_quantity
+        if basket_std < 4.5:
+            trade_at = basket_std * 1.5
+            if premium_diff < -trade_at:                           
+                order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] + self.positions['GIFT_BASKET'], order_amount)
+                assert(order_quantity >= 0)
+                if order_quantity > 0:
+                    logger.print(f"SELL at {best_bid} for {order_quantity}")                
+                    gb_orders.append(Order('GIFT_BASKET', best_bid, -order_quantity))                 
+                    temp_pos_sell -= order_quantity                    
+            elif premium_diff > trade_at:        
+                order_quantity = min(self.POSITION_LIMIT['GIFT_BASKET'] - self.positions['GIFT_BASKET'], order_amount)
+                assert(order_quantity >= 0)
+                if order_quantity > 0:
+                    logger.print(f"BUY at {best_ask} for {order_quantity}")
+                    gb_orders.append(Order('GIFT_BASKET', best_ask, order_quantity))                
+                    temp_pos_buy += order_quantity
+            
         
+                        
         return gb_orders
     
     """
@@ -1287,7 +1325,10 @@ class Trader:
         
         #Trade Gift Basket
         gb_orders = self.compute_orders_basket_two(past_trades)
-        result["GIFT_BASKET"] = gb_orders              
+        result["GIFT_BASKET"] = gb_orders
+        # if len(gb_orders) == 0:
+        #     result["GIFT_BASKET"] += self.compute_orders_basket(past_trades)
+                      
 
         # Trade Roses
         # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ROSES")
