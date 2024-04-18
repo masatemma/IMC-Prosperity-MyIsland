@@ -111,7 +111,6 @@ class PastData:
         self.sunlight_exit = -1
         self.currently_long_spread = False
         self.currently_short_spread = False
-        self.basket_products_mean_ratio = {'CHOCOLATE': 44.6, 'STRAWBERRIES': 34.2, 'ROSES': 20.48}
 
 logger = Logger()
 
@@ -132,12 +131,6 @@ class Trader:
     WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15, 'ORCHIDS': 20, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
     WINDOW_SIZE_MIDPRICE = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
     WINDOW_SIZE_EXP = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 10, 'GIFT_BASKET': 5}
-    
-    BASKET_PRODUCTS_RATIO = {'CHOCOLATE': 44.7, 'STRAWBERRIES': 34.2, 'ROSES': 20.48} #44.8
-    BASKET_PRODUCTS_STDEV = {'CHOCOLATE': 0.2, 'STRAWBERRIES': 0.2, 'ROSES': 0.07} #0.07
-    BASKET_PRODUCTS_MULTIPLIER = {'CHOCOLATE': 4, 'STRAWBERRIES': 6, 'ROSES': 1}
-    BASKET_PRODUCTS_ORDER_MULTIPLIER = {'CHOCOLATE': 0.1, 'STRAWBERRIES': 0.15, 'ROSES': 0.1}
-    BASKET_MEAN_RATIO_LENGTH = {'CHOCOLATE': 3000, 'STRAWBERRIES': 10000, 'ROSES': 700} #44.8
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 5000    
     TICK_SIZE = 1
@@ -1123,29 +1116,10 @@ class Trader:
         next_time_step_with_bias = np.array([[1, self.PREMIUM_LR_LENGTH + 1]])
         predicted_premium = next_time_step_with_bias.dot(theta)        
 
-        return predicted_premium.item()        
-    
-    def update_basket_products_ratio_mean(self, past_trades: PastData, cur_ratio: float, product: str):                                       
-        
-        ratio_mean = past_trades.basket_products_mean_ratio[product]       
-        limit = self.BASKET_MEAN_RATIO_LENGTH[product]            
-        iteration_number = self.cur_timestamp / 100   
-                 
-        if iteration_number > 0 and iteration_number < limit:
-            total =  iteration_number * ratio_mean + cur_ratio
-            new_ratio_mean = total / (iteration_number + 1)
-            past_trades.basket_products_mean_ratio[product] = new_ratio_mean
-        elif iteration_number >= limit:
-            total =  limit * ratio_mean + cur_ratio
-            new_ratio_mean = total / (limit + 1)
-            past_trades.basket_products_mean_ratio[product] = new_ratio_mean
-        else:             
-            past_trades.basket_products_mean_ratio[product] = cur_ratio
-                        
-                
-                         
+        return predicted_premium.item()
+                       
     def compute_orders_basket_products(self, past_trades: PastData, product: str):
-        orders: List[Order] = []         
+        gb_orders: List[Order] = []         
         buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product) 
         worst_ask = next(reversed(sell_order_depth))
         worst_bid = next(reversed(buy_order_depth))                                       
@@ -1154,44 +1128,30 @@ class Trader:
         best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)                                                              
         
         premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - 380
-              
-            
-        basket_product_ratio =  (past_trades.mid_prices[product][-1] * self.BASKET_PRODUCTS_MULTIPLIER[product]) / past_trades.mid_prices['GIFT_BASKET'][-1] * 100        
-        self.update_basket_products_ratio_mean(past_trades, basket_product_ratio, product)
-        
-        if product == "STRAWBERRIES":
-            ratio_diff = basket_product_ratio - self.BASKET_PRODUCTS_RATIO[product]        
-        elif product == "ROSES":
-            ratio_diff = basket_product_ratio - past_trades.basket_products_mean_ratio[product]        
-        
-        
-        if past_trades.basket_products_mean_ratio[product] == 0:
-            return []
-        
+                
         basket_std = 110 # 110
-        trade_at = basket_std*0.5           
+        trade_at = basket_std*0.6           
 
         temp_pos = self.positions[product]           
-        order_amount = int(self.POSITION_LIMIT[product] * self.BASKET_PRODUCTS_ORDER_MULTIPLIER[product])       
+        order_amount = int(self.POSITION_LIMIT[product] * 0.2)  #24
         
-        # if premium_diff > trade_at or premium_diff < -trade_at:
-        if ratio_diff > self.BASKET_PRODUCTS_STDEV[product]:                                   
-            order_quantity = min(self.POSITION_LIMIT[product] + temp_pos, order_amount)
+        if premium_diff > trade_at:           
+            order_quantity = min(self.POSITION_LIMIT[product] + self.positions[product], order_amount)
             assert(order_quantity >= 0)
             if order_quantity > 0:
                 logger.print(f"SELL at {best_bid} for {order_quantity}")                
-                orders.append(Order(product, worst_bid, -order_quantity))                 
-                temp_pos_sell -= order_quantity                               
-        elif ratio_diff < -self.BASKET_PRODUCTS_STDEV[product]:
-            order_quantity = min(self.POSITION_LIMIT[product] - temp_pos, order_amount)
+                gb_orders.append(Order(product, best_bid, -order_quantity))                 
+                temp_pos_sell -= order_quantity
+                
+        elif premium_diff < -trade_at:        
+            order_quantity = min(self.POSITION_LIMIT[product] - self.positions[product], order_amount)
             assert(order_quantity >= 0)
             if order_quantity > 0:
                 logger.print(f"BUY at {best_ask} for {order_quantity}")
-                orders.append(Order(product, worst_ask, order_quantity))                
-                temp_pos_buy += order_quantity                                                      
-                
+                gb_orders.append(Order(product, best_ask, order_quantity))                
+                temp_pos_buy += order_quantity 
         
-        return orders
+        return gb_orders
     
     def calculate_premium_stdev(self, past_trades: PastData):
         if len(past_trades.basket_premium) < self.PREMIUM_LR_LENGTH:
@@ -1292,23 +1252,6 @@ class Trader:
         
         return gb_orders
     
-    def compute_chocolate_orders(self, result):
-        orders: List[Order] = [] 
-        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,"CHOCOLATE") 
-        worst_ask = next(reversed(sell_order_depth))
-        worst_bid = next(reversed(buy_order_depth))
-        order_amount = 10 
-               
-        if len(result['STRAWBERRIES']) > 0:            
-            if result['STRAWBERRIES'][0].quantity < 0:
-                order_quantity = min(self.POSITION_LIMIT["CHOCOLATE"] - self.positions["CHOCOLATE"],order_amount )
-                orders.append(Order("CHOCOLATE", worst_ask, order_quantity))
-            elif result['STRAWBERRIES'][0].quantity > 0:
-                order_quantity = min(self.POSITION_LIMIT["CHOCOLATE"] + self.positions["CHOCOLATE"],order_amount )
-                orders.append(Order("CHOCOLATE", worst_bid, -order_quantity))
-                
-        return orders  
-        
     """
     Only method required. It takes all buy and sell orders for all symbols as an input,
     and outputs a list of orders to be sent
@@ -1397,34 +1340,35 @@ class Trader:
         Main trading logics
         """      
                 
-        #Trade Gift Basket, Roses, chocolate, strawberries              
-        result["GIFT_BASKET"] = self.compute_order_basket_three(past_trades)                                    
-        result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
-        result["STRAWBERRIES"] = self.compute_orders_basket_products(past_trades, "STRAWBERRIES")            
+        #Trade Gift Basket                
+        result["GIFT_BASKET"] = self.compute_order_basket_three(past_trades)                      
+
+        #Trade Roses
+        #result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")        
         
-        # # Trade Orchids  
-        # conversions = 0                                                           
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
-        # con_ob = state.observations.conversionObservations["ORCHIDS"]                                
-        # self.update_rates_of_change(past_trades, con_ob)
-        # result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
-        # conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
+        # Trade Orchids  
+        conversions = 0                                                           
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
+        con_ob = state.observations.conversionObservations["ORCHIDS"]                                
+        self.update_rates_of_change(past_trades, con_ob)
+        result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
+        conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
         
-        # # Trade STARFRUIT                   
-        # """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
-        # if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
-        #     trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
-        #     portfolio_trade = True
-        #     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
-        #     result["STARFRUIT"] = threshold_orders             
+        # Trade STARFRUIT                   
+        """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
+        if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
+            trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
+            portfolio_trade = True
+            threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
+            result["STARFRUIT"] = threshold_orders             
             
-        # # Trade AMETHYSTS            
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
-        # result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
+        # Trade AMETHYSTS            
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
+        result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
                                                 
-        # target_products = ["AMETHYSTS"]
-        # self.trade_portfolio(result, past_trades.portfolio, target_products)
+        target_products = ["AMETHYSTS"]
+        self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
