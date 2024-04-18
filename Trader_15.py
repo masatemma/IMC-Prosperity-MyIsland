@@ -1258,20 +1258,20 @@ class Trader:
                                   
         return gb_orders
     
-    def compute_order_basket_three(self, past_trades: PastData):
+    def compute_order_basket(self, past_trades: PastData):
         gb_orders: List[Order] = []         
         gb_buy_order_depth, gb_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state, 'GIFT_BASKET') 
         best_ask, best_bid, _ = self.get_order_book_insight(gb_buy_order_depth, gb_sell_order_depth)   
         worst_ask = next(reversed(gb_sell_order_depth))
         worst_bid = next(reversed(gb_buy_order_depth))                                                               
         
-        premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - 380
+        premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - 381 # 381
                 
         basket_std = 110 # 110
         trade_at = basket_std*0.5           
 
         temp_pos = self.positions['GIFT_BASKET']           
-        order_amount = 60  #24
+        order_amount = 60  #60
         
         if premium_diff > trade_at:
             vol = min(self.POSITION_LIMIT['GIFT_BASKET'] + temp_pos, order_amount)
@@ -1398,33 +1398,33 @@ class Trader:
         """      
                 
         #Trade Gift Basket, Roses, chocolate, strawberries              
-        result["GIFT_BASKET"] = self.compute_order_basket_three(past_trades)                                    
+        result["GIFT_BASKET"] = self.compute_order_basket(past_trades)                                    
         result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
         result["STRAWBERRIES"] = self.compute_orders_basket_products(past_trades, "STRAWBERRIES")            
         
-        # # Trade Orchids  
-        # conversions = 0                                                           
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
-        # con_ob = state.observations.conversionObservations["ORCHIDS"]                                
-        # self.update_rates_of_change(past_trades, con_ob)
-        # result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
-        # conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
+        # Trade Orchids  
+        conversions = 0                                                           
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
+        con_ob = state.observations.conversionObservations["ORCHIDS"]                                
+        self.update_rates_of_change(past_trades, con_ob)
+        result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
+        conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
         
-        # # Trade STARFRUIT                   
-        # """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
-        # if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
-        #     trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
-        #     portfolio_trade = True
-        #     threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
-        #     result["STARFRUIT"] = threshold_orders             
+        # Trade STARFRUIT                   
+        """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "STARFRUIT")
+        if self.cur_timestamp / 100 > self.WINDOW_SIZE_LR["STARFRUIT"]-1: 
+            trade_threshold = self.compute_trade_threshold(past_trades, "STARFRUIT")
+            portfolio_trade = True
+            threshold_orders, _ = self.make_threshold_trade(trade_threshold, past_trades, buy_order_depth, sell_order_depth, "STARFRUIT", trade_portfolio=portfolio_trade) 
+            result["STARFRUIT"] = threshold_orders             
             
-        # # Trade AMETHYSTS            
-        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
-        # result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
+        # Trade AMETHYSTS            
+        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "AMETHYSTS")                    
+        result["AMETHYSTS"] = self.compute_amethysts_orders(past_trades, buy_order_depth, sell_order_depth, "AMETHYSTS")                             
                                                 
-        # target_products = ["AMETHYSTS"]
-        # self.trade_portfolio(result, past_trades.portfolio, target_products)
+        target_products = ["AMETHYSTS"]
+        self.trade_portfolio(result, past_trades.portfolio, target_products)
 
         # Serialize past trades into traderData
         traderData = jsonpickle.encode(past_trades) 
