@@ -136,7 +136,7 @@ class Trader:
     BASKET_PRODUCTS_RATIO = {'CHOCOLATE': 44.7, 'STRAWBERRIES': 34.2, 'ROSES': 20.48} #44.8
     BASKET_PRODUCTS_STDEV = {'CHOCOLATE': 0.2, 'STRAWBERRIES': 0.2, 'ROSES': 0.07} #0.07
     BASKET_PRODUCTS_MULTIPLIER = {'CHOCOLATE': 4, 'STRAWBERRIES': 6, 'ROSES': 1}
-    BASKET_PRODUCTS_ORDER_MULTIPLIER = {'CHOCOLATE': 0.1, 'STRAWBERRIES': 0.15, 'ROSES': 0.1}
+    BASKET_PRODUCTS_ORDER_MULTIPLIER = {'CHOCOLATE': 0.1, 'STRAWBERRIES': 0.1, 'ROSES': 0.2}
     BASKET_MEAN_RATIO_LENGTH = {'CHOCOLATE': 3000, 'STRAWBERRIES': 10000, 'ROSES': 700} #44.8
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 5000    
@@ -1178,15 +1178,13 @@ class Trader:
         if ratio_diff > self.BASKET_PRODUCTS_STDEV[product]:                                   
             order_quantity = min(self.POSITION_LIMIT[product] + temp_pos, order_amount)
             assert(order_quantity >= 0)
-            if order_quantity > 0:
-                logger.print(f"SELL at {best_bid} for {order_quantity}")                
+            if order_quantity > 0:                                
                 orders.append(Order(product, worst_bid, -order_quantity))                 
                 temp_pos_sell -= order_quantity                               
         elif ratio_diff < -self.BASKET_PRODUCTS_STDEV[product]:
             order_quantity = min(self.POSITION_LIMIT[product] - temp_pos, order_amount)
             assert(order_quantity >= 0)
-            if order_quantity > 0:
-                logger.print(f"BUY at {best_ask} for {order_quantity}")
+            if order_quantity > 0:                
                 orders.append(Order(product, worst_ask, order_quantity))                
                 temp_pos_buy += order_quantity                                                      
                 
