@@ -94,12 +94,12 @@ class Logger:
 
 class PastData: 
     def __init__(self):
-        self.market_data: Dict[str, List[Tuple[float, int, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': []}     #price, quantity, timestamp
-        self.own_trades: Dict[str, List[Tuple[float, int, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': []}      #price, quantity, timestamp
-        self.open_positions: Dict[str, List[Tuple[float, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': []}      #price, quantity     
-        self.portfolio: Dict[str, Tuple[int, int]] = {'AMETHYSTS': (0,0), 'STARFRUIT': (0,0), 'ORCHIDS': (0,0), 'CHOCOLATE': (0,0), 'STRAWBERRIES': (0,0), 'ROSES': (0,0), 'GIFT_BASKET': (0,0)}
+        self.market_data: Dict[str, List[Tuple[float, int, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': [], "COCONUT": [], "COCONUT_COUPON": []}    #price, quantity, timestamp
+        self.own_trades: Dict[str, List[Tuple[float, int, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': [], "COCONUT": [], "COCONUT_COUPON": []}     #price, quantity, timestamp
+        self.open_positions: Dict[str, List[Tuple[float, int]]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': [], "COCONUT": [], "COCONUT_COUPON": []}      #price, quantity     
+        self.portfolio: Dict[str, Tuple[int, int]] = {'AMETHYSTS': (0,0), 'STARFRUIT': (0,0), 'ORCHIDS': (0,0), 'CHOCOLATE': (0,0), 'STRAWBERRIES': (0,0), 'ROSES': (0,0), 'GIFT_BASKET': (0,0), "COCONUT": (0,0), "COCONUT_COUPON": (0,0)}
         self.prev_mid = -1
-        self.mid_prices: Dict[str, List[float]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': []} 
+        self.mid_prices: Dict[str, List[float]] = {'AMETHYSTS': [], 'STARFRUIT': [], 'ORCHIDS': [], 'CHOCOLATE': [], 'STRAWBERRIES': [], 'ROSES': [], 'GIFT_BASKET': [], "COCONUT": [], "COCONUT_COUPON": []} 
         self.humidity_rates_of_change: List[float] = []
         self.sunlight_rates_of_change: List[float] = []
         self.basket_premium: List[float] = []
@@ -126,8 +126,8 @@ class Trader:
     PORTFOLIO_TRADE_MARGIN = {'AMETHYSTS': 0, 'STARFRUIT': 1, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 1, 'GIFT_BASKET': 5}
     PORTFOLIO_TRADE_THRESHOLD = {'AMETHYSTS': 10, 'STARFRUIT': 15, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
       
-    PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT', 'ORCHIDS', 'CHOCOLATE', 'STRAWBERRIES', 'ROSES', 'GIFT_BASKET']
-    POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 100, 'CHOCOLATE': 250, 'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60}
+    PRODUCT_LIST = ['AMETHYSTS', 'STARFRUIT', 'ORCHIDS', 'CHOCOLATE', 'STRAWBERRIES', 'ROSES', 'GIFT_BASKET', "COCONUT", "COCONUT_COUPON"]
+    POSITION_LIMIT = {'AMETHYSTS': 20, 'STARFRUIT': 20, 'ORCHIDS': 100, 'CHOCOLATE': 250, 'STRAWBERRIES': 350, 'ROSES': 60, 'GIFT_BASKET': 60, "COCONUT": 300, "COCONUT_COUPON": 600}
     WINDOW_SIZE = {'AMETHYSTS': 4, 'STARFRUIT': 10, 'ORCHIDS': 10, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 30, 'GIFT_BASKET': 5} 
     WINDOW_SIZE_TIME = {'AMETHYSTS': 25, 'STARFRUIT': 25, 'ORCHIDS': 20,'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
     WINDOW_SIZE_VOL = {'AMETHYSTS': 5, 'STARFRUIT': 15, 'ORCHIDS': 20, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 15, 'GIFT_BASKET': 5}
@@ -154,7 +154,7 @@ class Trader:
     PREMIUM_LR_LENGTH = 5
     PREMIUM_ADJ_STRENGTH = 100    
 
-    positions = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 0, 'GIFT_BASKET': 0}    
+    positions = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 0, 'GIFT_BASKET': 0, "COCONUT": 0, "COCONUT_COUPON": 0}    
     cur_timestamp = 0
     cur_state: TradingState
     
@@ -1404,7 +1404,11 @@ class Trader:
             
         """
         Main trading logics
-        """         
+        """     
+        #Trade Coconut and Coconut Coupon
+        order_quantity = self.POSITION_LIMIT["COCONUT_COUPON"] - self.positions["COCONUT_COUPON"]
+        result["COCONUT_COUPON"] = [Order("COCONUT_COUPON", 650, order_quantity)]    
+        
         #Trade Gift Basket, Roses, chocolate, strawberries              
         result["GIFT_BASKET"] = self.compute_order_basket(past_trades)                                    
         result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
