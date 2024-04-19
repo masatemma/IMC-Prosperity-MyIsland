@@ -112,6 +112,7 @@ class PastData:
         self.currently_long_spread = False
         self.currently_short_spread = False
         self.basket_products_mean_ratio = {'CHOCOLATE': 44.6, 'STRAWBERRIES': 34.2, 'ROSES': 20.48}
+        self.adjusted_basket_premium: float = 379
 
 logger = Logger()
 
@@ -151,6 +152,7 @@ class Trader:
     HUMIDITY_OPT_HIGH = 80 
     SUNLIGHT_AVG = 2500
     PREMIUM_LR_LENGTH = 5
+    PREMIUM_ADJ_STRENGTH = 100    
 
     positions = {'AMETHYSTS': 0, 'STARFRUIT': 0, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 0, 'GIFT_BASKET': 0}    
     cur_timestamp = 0
@@ -1125,6 +1127,15 @@ class Trader:
 
         return predicted_premium.item()        
     
+    def adjust_basket_premium(self, past_trades: PastData):
+        if len(past_trades.basket_premium) == 0:
+            return None
+        cur_premium = past_trades.basket_premium[-1]
+        total = past_trades.adjusted_basket_premium * self.PREMIUM_ADJ_STRENGTH + cur_premium
+        new_adjust_premium = total / (self.PREMIUM_ADJ_STRENGTH + 1)
+        past_trades.adjusted_basket_premium = new_adjust_premium
+        return new_adjust_premium
+        
     def update_basket_products_ratio_mean(self, past_trades: PastData, cur_ratio: float, product: str):                                       
         
         ratio_mean = past_trades.basket_products_mean_ratio[product]       
@@ -1141,9 +1152,7 @@ class Trader:
             past_trades.basket_products_mean_ratio[product] = new_ratio_mean
         else:             
             past_trades.basket_products_mean_ratio[product] = cur_ratio
-                        
-                
-                         
+                                                                 
     def compute_orders_basket_products(self, past_trades: PastData, product: str):
         orders: List[Order] = []         
         buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product) 
@@ -1220,37 +1229,39 @@ class Trader:
         temp_pos_sell = self.positions[product]
         best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)   
         
-        predicted_premium = self.predict_basket_premium(past_trades)        
-        basket_std = self.calculate_premium_stdev(past_trades)                
+        
+        adjusted_premium = self.adjust_basket_premium(past_trades)  
+        
+        if adjusted_premium == None:
+            adjusted_premium = 379
         observed_premium = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1]       
         self.update_premium(past_trades, observed_premium)
-        
-        
-        if predicted_premium == None or basket_std == 0:
-            return gb_orders        
+                            
                 
-        premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - predicted_premium        
-        logger.print(f"predicted prem: {predicted_premium}")
+        premium_diff = past_trades.mid_prices['GIFT_BASKET'][-1] - past_trades.mid_prices['STRAWBERRIES'][-1]*6 - past_trades.mid_prices['CHOCOLATE'][-1]*4 - past_trades.mid_prices['ROSES'][-1] - adjusted_premium        
+        
+        logger.print(f"predicted prem: {adjusted_premium}")
         logger.print(f"observed prem: {observed_premium}")
-        logger.print(f"basket_std: {basket_std}")
+      
          
-        order_amount = 1
-        trade_at = basket_std * 2.5        
+        order_amount = 5
+        basket_std = 30
+        trade_at = basket_std * 0.5        
                                                                
-        if premium_diff < -trade_at:           
+        if premium_diff > trade_at:           
             order_quantity = min(self.POSITION_LIMIT[product] + self.positions[product], order_amount)
             assert(order_quantity >= 0)
             if order_quantity > 0:
                 logger.print(f"SELL at {best_bid} for {order_quantity}")                
-                gb_orders.append(Order(product, best_bid, -order_quantity))                 
+                gb_orders.append(Order(product, worst_bid, -order_quantity))                 
                 temp_pos_sell -= order_quantity
                 
-        elif premium_diff > trade_at:        
+        elif premium_diff < -trade_at:        
             order_quantity = min(self.POSITION_LIMIT[product] - self.positions[product], order_amount)
             assert(order_quantity >= 0)
             if order_quantity > 0:
                 logger.print(f"BUY at {best_ask} for {order_quantity}")
-                gb_orders.append(Order(product, best_ask, order_quantity))                
+                gb_orders.append(Order(product, worst_ask, order_quantity))                
                 temp_pos_buy += order_quantity        
 
                                   
@@ -1393,8 +1404,7 @@ class Trader:
             
         """
         Main trading logics
-        """      
-                
+        """         
         #Trade Gift Basket, Roses, chocolate, strawberries              
         result["GIFT_BASKET"] = self.compute_order_basket(past_trades)                                    
         result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
