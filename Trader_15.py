@@ -117,7 +117,7 @@ class PastData:
 logger = Logger()
 
 class Trader:
-    SIGMA_MULTIPLIER_MAKE = {'AMETHYSTS': 1, 'STARFRUIT': 1.5, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 1.5, 'GIFT_BASKET': 5}
+    SIGMA_MULTIPLIER_MAKE = {'AMETHYSTS': 1, 'STARFRUIT': 1.5, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 1.5, 'GIFT_BASKET': 5, 'COCONUT': 0.2, 'COCONUT_COUPON': 0.2}
     SIGMA_MULTIPLIER_TAKE = {'AMETHYSTS': 1, 'STARFRUIT': 1, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 1.5, 'GIFT_BASKET': 5}
     WINDOW_SIZE_LR = {'AMETHYSTS': 25, 'STARFRUIT': 35, 'ORCHIDS': 0, 'CHOCOLATE': 0, 'STRAWBERRIES': 0, 'ROSES': 25, 'GIFT_BASKET': 5}
 
@@ -138,7 +138,7 @@ class Trader:
     BASKET_PRODUCTS_STDEV = {'CHOCOLATE': 0.2, 'STRAWBERRIES': 0.2, 'ROSES': 0.07} #0.07
     BASKET_PRODUCTS_MULTIPLIER = {'CHOCOLATE': 4, 'STRAWBERRIES': 6, 'ROSES': 1}
     BASKET_PRODUCTS_ORDER_MULTIPLIER = {'CHOCOLATE': 0.1, 'STRAWBERRIES': 0.1, 'ROSES': 0.2}
-    BASKET_MEAN_RATIO_LENGTH = {'CHOCOLATE': 3000, 'STRAWBERRIES': 10000, 'ROSES': 700} #44.8
+    BASKET_MEAN_RATIO_LENGTH = {'CHOCOLATE': 3000, 'STRAWBERRIES': 10000, 'ROSES': 700} #44.8    
     VWAP_WINDOW = 20
     PAST_DATA_MAX = 5000    
     TICK_SIZE = 1
@@ -284,12 +284,13 @@ class Trader:
         return trades_by_timestamp
 
     def compute_buy_sell_orderdepths(self, state: TradingState, product):
-        buy_order_depth: Dict[int, int]
-        sell_order_depth: Dict[int, int]
+        buy_order_depth: Dict[int, int] = {}
+        sell_order_depth: Dict[int, int] = {}
+        
         # Separate buy order depths and sell order depths
-        if len(state.order_depths[product].buy_orders) > 0:       
+        if len(state.order_depths[product].buy_orders.items()) > 0:       
             buy_order_depth = state.order_depths[product].buy_orders                
-        if len(state.order_depths[product].sell_orders) > 0:      
+        if len(state.order_depths[product].sell_orders.items()) > 0:      
             sell_order_depth = state.order_depths[product].sell_orders
         
         return buy_order_depth, sell_order_depth 
@@ -1044,7 +1045,37 @@ class Trader:
                         
                                       
         return orders
-                
+    
+    def market_make_orders(self, sell_order_depths: Dict[int, int], buy_order_depths: Dict[int, int], product: str, buy: bool, entry_amount: int, close=False):
+        orders: List[Order] = []
+        temp_position = self.positions[product]
+        if sell_order_depths == {} or buy_order_depths == {}:
+            return []
+        
+        worst_ask = next(reversed(sell_order_depths))
+        worst_bid = next(reversed(buy_order_depths))
+        best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depths, sell_order_depths)                                                              
+       
+        if not close:                                        
+            if buy:
+                order_quantity = min(self.POSITION_LIMIT[product] - self.positions[product], entry_amount)
+                temp_position += order_quantity
+                orders.append(Order(product, best_ask, order_quantity)) 
+            else:
+                order_quantity = min(self.POSITION_LIMIT[product] + self.positions[product], entry_amount)
+                temp_position += -order_quantity
+                orders.append(Order(product, best_bid, -order_quantity)) 
+        elif close:
+            order_quantity = abs(self.positions[product])
+            if order_quantity > 0:                    
+                if buy:
+                    temp_position += order_quantity
+                    orders.append(Order(product, best_ask, order_quantity)) 
+                else:
+                    temp_position += -order_quantity
+                    orders.append(Order(product, best_bid, -order_quantity)) 
+        return orders
+        
     def pairs_trading(self, past_trades: PastData, product_1: str, product_2: str, long_ma_length: int, short_ma_length: int, entry_threshold: float, exit_threshold: float) -> List[Order]: 
                      
         product_1_orders: List[Order] = []  
@@ -1067,39 +1098,39 @@ class Trader:
         #Get short MA
         short_ma = np.mean(short_product_1_prices - short_product_2_prices)
         logger.print(f"Short_MA: {short_ma}")
+        
+        product_1_buy_order_depth, product_1_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_1)
+        product_2_buy_order_depth, product_2_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_2)     
         # Compute z-score
         if long_std > 0:
-            zscore = (short_ma - long_ma)/long_std
-        
-        logger.print(f"zscore: {zscore}")
-
-        product_1_buy_order_depth, product_1_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_1)
-        product_2_buy_order_depth, product_2_sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product_2)        
-        if zscore > entry_threshold and not past_trades.currently_short_spread:
-            product_1_orders += self.market_take_orders(product_1_buy_order_depth, product_1, False) # short top
-            product_2_orders += self.market_take_orders(product_2_sell_order_depth, product_2, True) # long bottom
-            past_trades.currently_short_spread = True
-            past_trades.currently_long_spread = False
-        
-        elif zscore < -entry_threshold and not past_trades.currently_long_spread:
-            product_1_orders += self.market_take_orders(product_1_sell_order_depth, product_1, True) # long top
-            product_2_orders += self.market_take_orders(product_2_buy_order_depth, product_2, False) # short bottom
-            past_trades.currently_short_spread = False
-            past_trades.currently_long_spread = True
-        
-        elif abs(zscore) < exit_threshold:
-            if self.positions[product_1] > 0:
-                product_1_orders += self.market_take_orders(product_1_buy_order_depth, product_1, False, close=True) 
-            elif self.positions[product_1] < 0:
-                product_1_orders += self.market_take_orders(product_1_sell_order_depth, product_1, True, close=True)
-                
-            if self.positions[product_2] > 0:
-                product_2_orders += self.market_take_orders(product_2_buy_order_depth, product_2, False, close=True) 
-            elif self.positions[product_2] < 0:
-                product_2_orders += self.market_take_orders(product_2_sell_order_depth, product_2, True, close=True)                
-                                                                
-            past_trades.currently_short_spread = False
-            past_trades.currently_long_spread = False
+            zscore = (short_ma - long_ma)/long_std            
+            logger.print(f"zscore: {zscore}")
+                   
+            if zscore > entry_threshold and not past_trades.currently_short_spread and not past_trades.currently_long_spread:
+                product_1_orders += self.market_make_orders(product_1_sell_order_depth, product_1_buy_order_depth, product_1, False, 9) # short top
+                product_2_orders += self.market_make_orders(product_2_sell_order_depth, product_2_buy_order_depth, product_2, True, 5) # long bottom
+                past_trades.currently_short_spread = True
+                past_trades.currently_long_spread = False
+            
+            elif zscore < -entry_threshold and not past_trades.currently_long_spread and not past_trades.currently_short_spread:
+                product_1_orders += self.market_make_orders(product_1_sell_order_depth, product_1_buy_order_depth, product_1, True, 9) # long top
+                product_2_orders += self.market_make_orders(product_2_sell_order_depth, product_2_buy_order_depth, product_2, False, 5) # short bottom
+                past_trades.currently_short_spread = False
+                past_trades.currently_long_spread = True
+            
+            elif abs(zscore) < exit_threshold:
+                if self.positions[product_1] > 0:
+                    product_1_orders += self.market_make_orders(product_1_sell_order_depth, product_1_buy_order_depth, product_1, False, 0, close=True)
+                elif self.positions[product_1] < 0:
+                    product_1_orders += self.market_make_orders(product_1_sell_order_depth, product_1_buy_order_depth, product_1, True, 0, close=True) 
+                    
+                if self.positions[product_2] > 0:
+                    product_2_orders += self.market_make_orders(product_2_sell_order_depth, product_2_buy_order_depth, product_2, False, 0, close=True)
+                elif self.positions[product_2] < 0:
+                    product_2_orders += self.market_make_orders(product_2_sell_order_depth, product_2_buy_order_depth, product_2, True, 0, close=True) 
+                                                                    
+                past_trades.currently_short_spread = False
+                past_trades.currently_long_spread = False
             
         return product_1_orders, product_2_orders                    
     
@@ -1157,7 +1188,7 @@ class Trader:
         orders: List[Order] = []         
         buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(self.cur_state,product) 
         worst_ask = next(reversed(sell_order_depth))
-        worst_bid = next(reversed(buy_order_depth))                                       
+        worst_bid = next(reversed(buy_order_depth))                                               
         temp_pos_buy = self.positions[product]
         temp_pos_sell = self.positions[product]
         best_ask, best_bid, _ = self.get_order_book_insight(buy_order_depth, sell_order_depth)                                                              
@@ -1406,21 +1437,20 @@ class Trader:
         Main trading logics
         """     
         #Trade Coconut and Coconut Coupon
-        order_quantity = self.POSITION_LIMIT["COCONUT_COUPON"] - self.positions["COCONUT_COUPON"]
-        result["COCONUT_COUPON"] = [Order("COCONUT_COUPON", 650, order_quantity)]    
+        #result["COCONUT_COUPON"], result["COCONUT"] = self.pairs_trading(past_trades, "COCONUT_COUPON", "COCONUT", 35, 5, 1.5, 0.2) 
         
-        #Trade Gift Basket, Roses, chocolate, strawberries              
-        result["GIFT_BASKET"] = self.compute_order_basket(past_trades)                                    
-        result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
-        result["STRAWBERRIES"] = self.compute_orders_basket_products(past_trades, "STRAWBERRIES")            
+        # #Trade Gift Basket, Roses, chocolate, strawberries              
+        # result["GIFT_BASKET"] = self.compute_order_basket(past_trades)                                    
+        # result["ROSES"] = self.compute_orders_basket_products(past_trades, "ROSES")    
+        # result["STRAWBERRIES"] = self.compute_orders_basket_products(past_trades, "STRAWBERRIES")            
         
-        # Trade Orchids  
-        conversions = 0                                                           
-        buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
-        con_ob = state.observations.conversionObservations["ORCHIDS"]                                
-        self.update_rates_of_change(past_trades, con_ob)
-        result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
-        conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
+        # # Trade Orchids  
+        # conversions = 0                                                           
+        # buy_order_depth, sell_order_depth = self.compute_buy_sell_orderdepths(state, "ORCHIDS")
+        # con_ob = state.observations.conversionObservations["ORCHIDS"]                                
+        # self.update_rates_of_change(past_trades, con_ob)
+        # result["ORCHIDS"] = self.compute_orchids_orders(state, con_ob, past_trades, buy_order_depth, sell_order_depth, "ORCHIDS")                
+        # conversions = self.conversion_request(state, con_ob, past_trades, "ORCHIDS")                                                 
         
         # Trade STARFRUIT                   
         """trade_threshold - {'sell_threshold': sell_threshold, 'buy_threshold': buy_threshold}, """
